@@ -19,7 +19,15 @@ def _status_value(member: Any) -> str:
     """Return the canonical Telegram status for enum or string responses."""
     raw_status = getattr(member, "status", "")
     value = getattr(raw_status, "value", raw_status)
-    return str(value).rsplit(".", 1)[-1].lower()
+    normalized = str(value).rsplit(".", 1)[-1].lower()
+    if normalized in _ADMIN_STATUSES:
+        return normalized
+    class_name = type(member).__name__.lower()
+    if "creator" in class_name or "owner" in class_name:
+        return "creator"
+    if "administrator" in class_name or "admin" in class_name:
+        return "administrator"
+    return normalized
 
 
 class PermissionService:
@@ -68,7 +76,21 @@ class PermissionService:
         try:
             member = await bot.get_chat_member(chat_id=group_id, user_id=user_id)
             return _status_value(member) in _ADMIN_STATUSES
-        except TelegramAPIError:
+        except TelegramAPIError as exc:
+            logger.warning(
+                "Group admin check failed group=%s user=%s: %s",
+                group_id,
+                user_id,
+                exc.__class__.__name__,
+            )
+            return False
+        except Exception as exc:
+            logger.error(
+                "Unexpected group admin check error group=%s user=%s: %s",
+                group_id,
+                user_id,
+                exc.__class__.__name__,
+            )
             return False
 
 

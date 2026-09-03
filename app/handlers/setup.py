@@ -18,6 +18,7 @@ from app.services.firebase import firebase_service
 from app.services.permission_service import permission_service
 from app.utils.logger import logger
 from app.services.rate_limit_service import rate_limit_service
+from app.config import settings
 
 router = Router(name="setup")
 _GROUP_TYPES = {"group", "supergroup"}
@@ -74,7 +75,7 @@ async def _setup_report(
 
 
 async def _is_group_admin(bot: Any, group_id: int, user_id: int) -> bool:
-    return await permission_service.is_group_admin(bot, group_id, user_id)
+    return settings.is_admin(user_id) or await permission_service.is_group_admin(bot, group_id, user_id)
 
 
 @router.message(Command("setup"))

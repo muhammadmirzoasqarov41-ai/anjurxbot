@@ -29,7 +29,13 @@ class SubStatus(Enum):
 def _status_value(member) -> str:
     raw_status = getattr(member, "status", "")
     value = getattr(raw_status, "value", raw_status)
-    return str(value).rsplit(".", 1)[-1].lower()
+    normalized = str(value).rsplit(".", 1)[-1].lower()
+    class_name = type(member).__name__.lower()
+    if "creator" in class_name or "owner" in class_name:
+        return "creator"
+    if "administrator" in class_name or "admin" in class_name:
+        return "administrator"
+    return normalized
 
 
 _STATUS_CACHE_TTL = 15.0
