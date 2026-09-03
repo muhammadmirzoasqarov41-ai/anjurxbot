@@ -1,6 +1,6 @@
 # AnjurXBot
 
-Telegram group protection and moderation bot powered by aiogram 3, Firebase Firestore, and Render Background Worker.
+Telegram group protection and moderation bot powered by aiogram 3, Firebase Firestore, and Render Web Service.
 
 ## Features
 
@@ -38,6 +38,7 @@ FIREBASE_CLIENT_ID=
 FIREBASE_CLIENT_X509_CERT_URL=
 LOG_LEVEL=INFO
 TIMEZONE=Asia/Tashkent
+WEB_ADMIN_KEY=
 ```
 
 `FIREBASE_PRIVATE_KEY` may contain literal `\\n`; the application converts those sequences to newlines. Optional rate-limit variables are documented in `.env.example`.
@@ -45,7 +46,8 @@ TIMEZONE=Asia/Tashkent
 ## Run
 
 ```bash
-python main.py
+python main.py                 # local bot polling only
+python -m app.web_service      # local polling plus web panel
 ```
 
 Do not run a local polling instance while the Render production worker is running, because Telegram allows only one active polling consumer for a bot token.
@@ -68,10 +70,11 @@ Group administrator commands:
 
 ## Render deployment
 
-Create a **Background Worker** connected to this repository.
+Create a **Web Service** connected to this repository. It runs the Telegram
+polling loop and the read-only panel in one free service.
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `python main.py`
+- Start command: `python -m app.web_service`
 - Python version: `3.11.9` (configured in `runtime.txt`)
 
 Set these variables in the Render dashboard only:
@@ -89,10 +92,9 @@ LOG_LEVEL
 TIMEZONE
 ```
 
-The repository also defines an optional `anjurxbot-admin` Web Service for the
-read-only user panel. Set `WEB_ADMIN_KEY` in that service's environment and
-open its `/` URL. The web service uses the same Firebase variables listed
-above. It does not expose bot tokens, Firebase keys, or full user documents.
+Set `WEB_ADMIN_KEY` in the service environment and open the deployed service
+URL. The read-only panel is at `/`; Render health checks use `/health`. The
+service does not expose bot tokens, Firebase keys, or full user documents.
 
 Never place real values in `README.md`, `render.yaml`, `.env.example`, source code, or logs.
 

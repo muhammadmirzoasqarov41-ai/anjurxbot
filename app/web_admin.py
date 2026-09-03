@@ -79,11 +79,17 @@ async def users_page(request: web.Request) -> web.Response:
 
 async def create_app() -> web.Application:
     app = web.Application()
+    app.router.add_get("/health", health)
     app.router.add_get("/", users_page)
     app.router.add_get("/login", lambda request: _login_page())
     app.router.add_post("/login", login)
     app.router.add_get("/logout", logout)
     return app
+
+
+async def health(request: web.Request) -> web.Response:
+    """Render health probe; intentionally exposes no configuration data."""
+    return web.json_response({"status": "ok"})
 
 
 async def run_web_admin() -> None:

@@ -16,6 +16,7 @@ Adding a new handler in a future phase is a two-step change:
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 from aiogram import Bot, Dispatcher
@@ -202,3 +203,28 @@ async def run_polling() -> None:
 
     logger.info("Starting polling…")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
+
+async def run_web_service() -> None:
+    """Run polling and the read-only admin panel in one Render Web Service."""
+    from aiohttp import web
+    from app.web_admin import create_app
+
+    bot = _create_bot()
+    dp = _create_dispatcher()
+    _register_routers(dp)
+    _register_middlewares(dp)
+    _register_error_handler(dp)
+    dp.startup.register(_on_startup)
+    dp.shutdown.register(_on_shutdown)
+
+    web_app = await create_app()
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "10000")))
+    await site.start()
+    logger.info("Web service health endpoint started")
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        await runner.cleanup()
