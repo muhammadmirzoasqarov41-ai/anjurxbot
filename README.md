@@ -89,6 +89,11 @@ LOG_LEVEL
 TIMEZONE
 ```
 
+The repository also defines an optional `anjurxbot-admin` Web Service for the
+read-only user panel. Set `WEB_ADMIN_KEY` in that service's environment and
+open its `/` URL. The web service uses the same Firebase variables listed
+above. It does not expose bot tokens, Firebase keys, or full user documents.
+
 Never place real values in `README.md`, `render.yaml`, `.env.example`, source code, or logs.
 
 ## Verification before deployment

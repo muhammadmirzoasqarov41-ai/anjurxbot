@@ -188,6 +188,18 @@ class FirebaseService:
         await ref.set(data, merge=True)
         logger.info("User %s updated in Firestore.", user_id)
 
+    async def list_users(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return a bounded, display-ready list of users."""
+        results: list[dict[str, Any]] = []
+        try:
+            async for doc in self.db.collection("users").limit(limit).stream():
+                data = doc.to_dict() or {}
+                data["_id"] = doc.id
+                results.append(data)
+        except Exception as exc:
+            logger.error("Failed to list users: %s", exc)
+        return results
+
     # ------------------------------------------------------------------ #
     # Global settings
     # ------------------------------------------------------------------ #

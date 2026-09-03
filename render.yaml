@@ -29,3 +29,36 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
+
+  - type: web
+    name: anjurxbot-admin
+    runtime: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.web_admin
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: WEB_ADMIN_KEY
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_CLIENT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_X509_CERT_URL
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: TIMEZONE
+        value: Asia/Tashkent

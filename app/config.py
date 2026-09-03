@@ -95,6 +95,7 @@ class Settings:
     rate_limit_subscription_window: float = 20.0
     log_level: int = logging.INFO
     timezone: str = "Asia/Tashkent"
+    web_admin_key: str = ""
 
     # ------------------------------------------------------------------ #
     # Convenience helpers
@@ -138,6 +139,7 @@ def _load_settings() -> Settings:
         rate_limit_subscription_window=float(_optional("RATE_LIMIT_SUBSCRIPTION_WINDOW", "20")),
         log_level=getattr(logging, _optional("LOG_LEVEL", "INFO").upper(), logging.INFO),
         timezone=_optional("TIMEZONE", "Asia/Tashkent"),
+        web_admin_key=_optional("WEB_ADMIN_KEY"),
     )
 
 
