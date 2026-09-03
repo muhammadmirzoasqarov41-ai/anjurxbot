@@ -12,6 +12,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from app.config import settings
+from app.services.permission_service import permission_service
 from app.utils.logger import logger
 from app.services import punishment_service
 
@@ -29,7 +30,12 @@ async def require_admin(message: Message) -> bool:
             return
     """
     user_id = message.from_user.id if message.from_user else None
-    if user_id is None or not settings.is_admin(user_id):
+    is_group_admin = False
+    if user_id is not None and message.chat.type in {"group", "supergroup"}:
+        is_group_admin = await permission_service.is_group_admin(
+            message.bot, message.chat.id, user_id
+        )
+    if user_id is None or (not settings.is_admin(user_id) and not is_group_admin):
         logger.warning(
             "Unauthorised admin access attempt from user_id=%s",
             user_id,

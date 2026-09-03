@@ -18,6 +18,7 @@ Commands implemented:
 
 from __future__ import annotations
 
+from html import escape
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -241,7 +242,7 @@ async def cmd_channels(message: Message) -> None:
         username = ch.get("username") or ""
         ch_id = ch["channel_id"]
         display = username if username else str(ch_id)
-        lines.append(f"{i}. {title} — <code>{display}</code>")
+        lines.append(f"{i}. {escape(title)} — <code>{escape(display)}</code>")
 
     lines.append("\nKanal o'chirish: /delchannel")
     await message.answer("\n".join(lines), parse_mode="HTML")
@@ -349,7 +350,7 @@ async def cmd_addchannel_receive(message: Message, state: FSMContext) -> None:
 
     title = channel_info.get("title", str(channel_id))
     await message.answer(
-        f"✅ <b>{title}</b> kanali muvaffaqiyatli qo'shildi!\n\n"
+        f"✅ <b>{escape(title)}</b> kanali muvaffaqiyatli qo'shildi!\n\n"
         f"Majburiy obunani yoqish: /fsub_on\n"
         f"Barcha kanallar: /channels",
         parse_mode="HTML",

@@ -4,6 +4,7 @@ Handles: /panel, /start (admin path), groups list, group detail,
 guard panel, fsub panel, stats, config.
 """
 from __future__ import annotations
+from html import escape
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -408,7 +409,7 @@ async def cb_fsub_del_list(callback: CallbackQuery) -> None:
     lines = ["📋 <b>Kanallar ro'yxati:</b>\n"]
     for ch in channels:
         name = ch.get("username") or ch.get("title") or str(ch.get("channel_id",""))
-        lines.append(f"  📢 {name}")
+        lines.append(f"  📢 {escape(name)}")
     text = "\n".join(lines) + "\n\nO'chirish uchun kanalga bosing:"
     kb = fsub_del_keyboard(channels, group_id)
     try:
@@ -604,7 +605,7 @@ async def cb_badwords_list(callback: CallbackQuery) -> None:
         return
     lines = [f"🚫 <b>Taqiqlangan so'zlar</b> ({len(words)} ta):\n"]
     for i, w in enumerate(words[:50], 1):
-        lines.append(f"  {i}. <code>{w}</code>")
+        lines.append(f"  {i}. <code>{escape(w)}</code>")
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     from aiogram.types import InlineKeyboardButton
     b = InlineKeyboardBuilder()

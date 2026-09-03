@@ -8,6 +8,7 @@ Handles interactive input flows:
 """
 from __future__ import annotations
 
+from html import escape
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -253,9 +254,9 @@ async def fsm_badword_add(message: Message, state: FSMContext) -> None:
         admin_id = message.from_user.id
         import asyncio
         asyncio.create_task(log_service.log_admin_action(group_id, admin_id, "So'z qo'shildi", word))
-        reply = f"✅ <code>{word}</code> ro'yxatga qo'shildi."
+        reply = f"✅ <code>{escape(word)}</code> ro'yxatga qo'shildi."
     else:
-        reply = f"⚠️ <code>{word}</code> allaqachon ro'yxatda."
+        reply = f"⚠️ <code>{escape(word)}</code> allaqachon ro'yxatda."
     guard = await guard_service.get_guard_settings(group_id)
     text = await build_badwords_text(group_id)
     await message.answer(
@@ -288,7 +289,7 @@ async def cb_badword_del_start(callback: CallbackQuery, state: FSMContext) -> No
     await callback.answer()
     await callback.message.answer(
         "🗑 <b>O'chirish uchun so'z yuboring.</b>\n\n"
-        "Mavjud so'zlar: " + ", ".join(f"<code>{w}</code>" for w in words[:20]),
+        "Mavjud so'zlar: " + ", ".join(f"<code>{escape(w)}</code>" for w in words[:20]),
         reply_markup=cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -308,9 +309,9 @@ async def fsm_badword_del(message: Message, state: FSMContext) -> None:
         admin_id = message.from_user.id
         import asyncio
         asyncio.create_task(log_service.log_admin_action(group_id, admin_id, "So'z o'chirildi", word))
-        reply = f"✅ <code>{word}</code> ro'yxatdan o'chirildi."
+        reply = f"✅ <code>{escape(word)}</code> ro'yxatdan o'chirildi."
     else:
-        reply = f"⚠️ <code>{word}</code> topilmadi."
+        reply = f"⚠️ <code>{escape(word)}</code> topilmadi."
     guard = await guard_service.get_guard_settings(group_id)
     text = await build_badwords_text(group_id)
     await message.answer(
