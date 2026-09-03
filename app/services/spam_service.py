@@ -25,7 +25,8 @@ import re
 import time
 from typing import Deque, DefaultDict
 
-from aiogram.types import Message, MessageEntityType
+from aiogram.enums import MessageEntityType
+from aiogram.types import Message
 
 # ------------------------------------------------------------------ #
 # Anti-Link
