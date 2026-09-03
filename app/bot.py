@@ -16,6 +16,7 @@ Adding a new handler in a future phase is a two-step change:
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import os
 from typing import Any
 
@@ -37,6 +38,18 @@ from app.middlewares.dedup import UpdateDedupMiddleware
 from app.middlewares.rate_limit import CallbackRateLimitMiddleware
 from app.services.firebase import firebase_service
 from app.utils.logger import logger
+
+_POLLING_LOCK_PATH = "/tmp/anjurxbot-polling.lock"
+
+
+def _acquire_polling_lock():
+    lock_file = open(_POLLING_LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        lock_file.close()
+        raise RuntimeError("Another AnjurXBot polling instance is already running") from exc
+    return lock_file
 
 
 # --------------------------------------------------------------------------- #
@@ -116,6 +129,8 @@ async def _on_startup(bot: Bot) -> None:
         raise
 
     bot_info = await bot.get_me()
+    await bot.delete_webhook(drop_pending_updates=False)
+    logger.info("Telegram webhook cleared; polling mode enabled")
     await bot.set_my_commands(
         [BotCommand(command="start", description="Botni ishga tushirish"), BotCommand(command="help", description="Yordam")],
         scope=BotCommandScopeAllPrivateChats(),
@@ -191,6 +206,7 @@ async def run_polling() -> None:
 
     This is the only function that ``main.py`` needs to call.
     """
+    lock_file = _acquire_polling_lock()
     bot = _create_bot()
     dp = _create_dispatcher()
 
@@ -202,10 +218,15 @@ async def run_polling() -> None:
     dp.shutdown.register(_on_shutdown)
 
     logger.info("Starting polling…")
-    await dp.start_polling(
-        bot,
-        allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
-    )
+    try:
+        logger.info("Telegram polling started")
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
+        )
+    finally:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
 
 
 async def run_web_service() -> None:
@@ -213,6 +234,7 @@ async def run_web_service() -> None:
     from aiohttp import web
     from app.web_admin import create_app
 
+    lock_file = _acquire_polling_lock()
     bot = _create_bot()
     dp = _create_dispatcher()
     _register_routers(dp)
@@ -226,11 +248,14 @@ async def run_web_service() -> None:
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", int(os.getenv("PORT", "10000")))
     await site.start()
-    logger.info("Web service health endpoint started")
+    logger.info("Web service health endpoint started on PORT=%s", os.getenv("PORT", "10000"))
     try:
+        logger.info("Telegram polling started")
         await dp.start_polling(
             bot,
             allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
         )
     finally:
         await runner.cleanup()
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()

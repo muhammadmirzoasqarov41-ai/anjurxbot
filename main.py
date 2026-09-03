@@ -11,14 +11,14 @@ The script sets up the asyncio event loop and delegates everything to
 import asyncio
 import sys
 
-from app.bot import run_polling
+from app.bot import run_web_service
 from app.utils.logger import logger
 
 
 def main() -> None:
     """Bootstrap the bot and handle top-level fatal errors gracefully."""
     try:
-        asyncio.run(run_polling())
+        asyncio.run(run_web_service())
     except KeyboardInterrupt:
         logger.info("Bot stopped by KeyboardInterrupt (Ctrl+C).")
         sys.exit(0)

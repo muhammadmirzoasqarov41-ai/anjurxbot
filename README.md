@@ -46,8 +46,7 @@ WEB_ADMIN_KEY=
 ## Run
 
 ```bash
-python main.py                 # local bot polling only
-python -m app.web_service      # local polling plus web panel
+python main.py                 # polling plus web panel
 ```
 
 Do not run a local polling instance while the Render production worker is running, because Telegram allows only one active polling consumer for a bot token.
