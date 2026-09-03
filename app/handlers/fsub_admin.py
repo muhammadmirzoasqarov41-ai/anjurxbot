@@ -512,7 +512,9 @@ async def _verify_bot_channel_access(bot, channel_id: int) -> bool:
         me = await bot.get_me()
         member = await bot.get_chat_member(chat_id=channel_id, user_id=me.id)
         # Bot must be administrator to call getChatMember on private channels
-        return member.status.value in ("administrator", "creator", "member")
+        status = getattr(member, "status", "")
+        status = getattr(status, "value", status)
+        return str(status).rsplit(".", 1)[-1].lower() in ("administrator", "creator", "member")
     except TelegramAPIError as exc:
         logger.warning("Bot access check failed for channel %s: %s", channel_id, exc)
         return False

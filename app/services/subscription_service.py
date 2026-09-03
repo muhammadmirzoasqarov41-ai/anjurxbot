@@ -26,6 +26,12 @@ class SubStatus(Enum):
     ERROR = auto()           # bot has no access, channel not found, etc.
 
 
+def _status_value(member) -> str:
+    raw_status = getattr(member, "status", "")
+    value = getattr(raw_status, "value", raw_status)
+    return str(value).rsplit(".", 1)[-1].lower()
+
+
 _STATUS_CACHE_TTL = 15.0
 _status_cache: dict[tuple[int, int], tuple[SubStatus, float]] = {}
 _member_status_cache: dict[tuple[int, int], tuple[str, float]] = {}
@@ -73,7 +79,7 @@ async def check_subscription(
             return cached
     try:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
-        status = member.status.value  # e.g. "member", "administrator", "creator", "left", "kicked"
+        status = _status_value(member)  # e.g. member, administrator, creator, left, kicked
 
         if status in ("member", "administrator", "creator"):
             result = SubStatus.SUBSCRIBED
@@ -254,7 +260,7 @@ async def get_member_status(bot: Bot, chat_id: int, user_id: int, fresh: bool = 
             return cached
     try:
         member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-        status = member.status.value
+        status = _status_value(member)
         if not fresh:
             _member_status_cache[(user_id, chat_id)] = (status, time.monotonic())
         return status
