@@ -1,0 +1,44 @@
+# Secrets
+.env
+!.env.example
+*.json
+
+# Firebase credentials (local JSON files)
+credentials/
+!credentials/.gitkeep
+firebase-credentials/
+service-account*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
