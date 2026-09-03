@@ -15,7 +15,7 @@ from app.keyboards.admin import fsub_panel_keyboard, guard_panel_keyboard
 from app.keyboards.setup import setup_keyboard
 from app.services import group_service, guard_service
 from app.services.firebase import firebase_service
-from app.services.permission_service import permission_service
+from app.services.permission_service import permission_service, normalize_member_status
 from app.utils.logger import logger
 from app.services.rate_limit_service import rate_limit_service
 from app.config import settings
@@ -145,10 +145,12 @@ async def setup_callback(callback: CallbackQuery) -> None:
 async def bot_membership_updated(event: ChatMemberUpdated) -> None:
     if event.chat.type not in _GROUP_TYPES:
         return
-    status = event.new_chat_member.status
+    status = normalize_member_status(event.new_chat_member)
     group_id = event.chat.id
     title = event.chat.title or str(group_id)
+    logger.info("my_chat_member received group=%s status=%s", group_id, status)
     try:
+        logger.info("group registration started group=%s event=my_chat_member", group_id)
         previous = await group_service.get_group(group_id)
         await group_service.ensure_group_exists(group_id, title, event.chat.username or "", event.chat.type)
         if status in _ADMIN_STATUSES:
@@ -161,5 +163,10 @@ async def bot_membership_updated(event: ChatMemberUpdated) -> None:
         else:
             await firebase_service.update_group(group_id, {"is_active": False, "bot_status": "demoted", "permissions_valid": False, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
         group_service._cache_invalidate(group_id)
+        logger.info("group registration successful group=%s status=%s", group_id, status)
     except Exception as exc:
-        logger.error("Failed to process bot membership update for group %s: %s", group_id, exc)
+        logger.error(
+            "Failed to process my_chat_member group=%s error_type=%s",
+            group_id,
+            type(exc).__name__,
+        )

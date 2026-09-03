@@ -4,6 +4,7 @@ from app.keyboards.admin import groups_list_keyboard
 from app.services.dedup_service import UpdateDedupService
 from app.services.flood_service import check_flood, cleanup_flood_cache, reset_flood
 from app.services.rate_limit_service import RateLimitService
+from app.services.permission_service import normalize_member_status
 from app.services.spam_service import (
     contains_bad_word,
     has_link,
@@ -60,3 +61,17 @@ def test_content_detectors():
 def test_group_keyboard_contains_group_callback():
     markup = groups_list_keyboard([{"chat_id": -1001, "title": "Test"}], "guard")
     assert markup.inline_keyboard[0][0].callback_data == "ap:g:-1001:guard"
+
+
+def test_member_status_accepts_string_and_enum_like_values():
+    class StringMember:
+        status = "administrator"
+
+    class EnumLike:
+        value = "creator"
+
+    class EnumMember:
+        status = EnumLike()
+
+    assert normalize_member_status(StringMember()) == "administrator"
+    assert normalize_member_status(EnumMember()) == "creator"

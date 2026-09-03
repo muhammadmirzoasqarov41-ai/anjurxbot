@@ -15,7 +15,7 @@ from app.utils.logger import logger
 _ADMIN_STATUSES = {"administrator", "creator"}
 
 
-def _status_value(member: Any) -> str:
+def normalize_member_status(member: Any) -> str:
     """Return the canonical Telegram status for enum or string responses."""
     raw_status = getattr(member, "status", "")
     value = getattr(raw_status, "value", raw_status)
@@ -48,7 +48,7 @@ class PermissionService:
         try:
             me = await bot.get_me()
             member = await bot.get_chat_member(chat_id=group_id, user_id=me.id)
-            status = _status_value(member)
+            status = normalize_member_status(member)
             result["bot_status"] = status
             if status in _ADMIN_STATUSES:
                 is_creator = status == "creator"
@@ -75,7 +75,7 @@ class PermissionService:
         """Return whether a Telegram user is a creator or administrator."""
         try:
             member = await bot.get_chat_member(chat_id=group_id, user_id=user_id)
-            return _status_value(member) in _ADMIN_STATUSES
+            return normalize_member_status(member) in _ADMIN_STATUSES
         except TelegramAPIError as exc:
             logger.warning(
                 "Group admin check failed group=%s user=%s: %s",

@@ -202,7 +202,10 @@ async def run_polling() -> None:
     dp.shutdown.register(_on_shutdown)
 
     logger.info("Starting polling…")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await dp.start_polling(
+        bot,
+        allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
+    )
 
 
 async def run_web_service() -> None:
@@ -225,6 +228,9 @@ async def run_web_service() -> None:
     await site.start()
     logger.info("Web service health endpoint started")
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"],
+        )
     finally:
         await runner.cleanup()
