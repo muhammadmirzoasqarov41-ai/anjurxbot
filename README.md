@@ -72,7 +72,7 @@ Create a **Background Worker** connected to this repository.
 
 - Build command: `pip install -r requirements.txt`
 - Start command: `python main.py`
-- Python version: `3.11.9` (configured in `render.yaml`)
+- Python version: `3.11.9` (configured in `runtime.txt`)
 
 Set these variables in the Render dashboard only:
 
