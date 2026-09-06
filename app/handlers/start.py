@@ -93,7 +93,7 @@ async def cmd_help(message: Message):
     await message.reply(help_text, parse_mode="HTML")
 
 
-@router.callbackQuery(F.data == "common:help")
+@router.callback_query(F.data == "common:help")
 async def cb_help(callback: CallbackQuery):
     help_text = (
         "📖 <b>AnjurXBot Buyruqlar Qo'llanmasi:</b>\n\n"

@@ -38,7 +38,7 @@ async def cmd_setup(message: Message, bot: Bot):
     )
 
 
-@router.callbackQuery(F.data.startswith("setup:menu:"))
+@router.callback_query(F.data.startswith("setup:menu:"))
 async def cb_setup_menu(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -59,7 +59,7 @@ async def cb_setup_menu(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("setup:preset:default:"))
+@router.callback_query(F.data.startswith("setup:preset:default:"))
 async def cb_preset_default(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -89,7 +89,7 @@ async def cb_preset_default(callback: CallbackQuery, bot: Bot):
     await callback.answer("Oddiy rejim qo'llandi!")
 
 
-@router.callbackQuery(F.data.startswith("setup:preset:strict:"))
+@router.callback_query(F.data.startswith("setup:preset:strict:"))
 async def cb_preset_strict(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):

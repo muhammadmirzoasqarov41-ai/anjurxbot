@@ -69,7 +69,7 @@ async def cmd_global_admin(message: Message):
     )
 
 
-@router.callbackQuery(F.data == "global:stats")
+@router.callback_query(F.data == "global:stats")
 async def cb_global_stats(callback: CallbackQuery):
     if not config.is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo'q.", show_alert=True)
@@ -96,7 +96,7 @@ async def cb_global_stats(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("admin:stats:"))
+@router.callback_query(F.data.startswith("admin:stats:"))
 async def cb_admin_stats(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -116,7 +116,7 @@ async def cb_admin_stats(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("admin:warns:"))
+@router.callback_query(F.data.startswith("admin:warns:"))
 async def cb_admin_warns(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -137,7 +137,7 @@ async def cb_admin_warns(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("global:groups:"))
+@router.callback_query(F.data.startswith("global:groups:"))
 async def cb_global_groups(callback: CallbackQuery):
     if not config.is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo'q.", show_alert=True)
@@ -159,7 +159,7 @@ async def cb_global_groups(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callbackQuery(F.data == "global:broadcast")
+@router.callback_query(F.data == "global:broadcast")
 async def cb_global_broadcast(callback: CallbackQuery):
     if not config.is_admin(callback.from_user.id):
         await callback.answer("Ruxsat yo'q.", show_alert=True)
@@ -174,7 +174,7 @@ async def cb_global_broadcast(callback: CallbackQuery):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("admin:panel:"))
+@router.callback_query(F.data.startswith("admin:panel:"))
 async def cb_back_to_panel(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -310,7 +310,7 @@ async def cmd_unmute(message: Message, bot: Bot):
         await message.reply("❌ Cheklovni bekor qilishda xatolik yuz berdi.")
 
 
-@router.callbackQuery(F.data == "common:close")
+@router.callback_query(F.data == "common:close")
 async def cb_close(callback: CallbackQuery):
     try:
         await callback.message.delete()

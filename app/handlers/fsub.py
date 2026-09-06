@@ -46,7 +46,7 @@ async def cmd_fsub(message: Message, bot: Bot):
     )
 
 
-@router.callbackQuery(F.data.startswith("fsub:menu:"))
+@router.callback_query(F.data.startswith("fsub:menu:"))
 async def cb_fsub_menu(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not group_id and callback.message and callback.message.chat:
@@ -74,7 +74,7 @@ async def cb_fsub_menu(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("fsub:toggle_status:"))
+@router.callback_query(F.data.startswith("fsub:toggle_status:"))
 async def cb_fsub_toggle_status(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -99,7 +99,7 @@ async def cb_fsub_toggle_status(callback: CallbackQuery, bot: Bot):
     await callback.answer(f"Majburiy obuna {status_str}")
 
 
-@router.callbackQuery(F.data.startswith("fsub:check:"))
+@router.callback_query(F.data.startswith("fsub:check:"))
 async def cb_fsub_check_user(callback: CallbackQuery, bot: Bot):
     """Callback when regular user clicks 'Obunani tekshirish' button."""
     user = callback.from_user
@@ -145,7 +145,7 @@ async def cb_fsub_check_user(callback: CallbackQuery, bot: Bot):
         )
 
 
-@router.callbackQuery(F.data.startswith("fsub:del_channel:"))
+@router.callback_query(F.data.startswith("fsub:del_channel:"))
 async def cb_fsub_del_channel(callback: CallbackQuery, bot: Bot):
     parts = callback.data.split(":")
     if len(parts) < 4:
@@ -174,7 +174,7 @@ async def cb_fsub_del_channel(callback: CallbackQuery, bot: Bot):
     await callback.answer("Kanal o'chirildi ✅")
 
 
-@router.callbackQuery(F.data.startswith("fsub:add_channel:"))
+@router.callback_query(F.data.startswith("fsub:add_channel:"))
 async def cb_fsub_add_channel(callback: CallbackQuery, bot: Bot, state: FSMContext):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):

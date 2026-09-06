@@ -3,6 +3,7 @@ Firestore Async Client wrapper for AnjurXBot.
 Supports native async calls with fallback for credential-free testing environments.
 """
 import logging
+import inspect
 from typing import Optional, Dict, Any, List
 from google.oauth2 import service_account
 from google.cloud.firestore import AsyncClient
@@ -68,10 +69,12 @@ class FirestoreManager:
         """Gracefully close AsyncClient upon service shutdown."""
         if self.client:
             try:
-                self.client.close()
+                res = self.client.close()
+                if inspect.isawaitable(res):
+                    await res
                 logger.info("Firestore async client closed gracefully")
             except Exception as e:
-                logger.error(f"error_type={type(e).__name__} message=Error closing Firestore client")
+                logger.error(f"error_type={type(e).__name__} message=Error closing Firestore client: {e}")
         self._is_connected = False
 
     @property

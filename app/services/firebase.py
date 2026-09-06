@@ -7,21 +7,27 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+from app.config import config
+from app.database.firestore import db
+
 try:
     import pytz
     def _get_tz():
-        return pytz.timezone(config.timezone)
+        try:
+            return pytz.timezone(config.timezone)
+        except Exception:
+            return pytz.UTC
 except ImportError:
     try:
         from zoneinfo import ZoneInfo
         def _get_tz():
-            return ZoneInfo(config.timezone)
+            try:
+                return ZoneInfo(config.timezone)
+            except Exception:
+                return None
     except Exception:
         def _get_tz():
             return None
-
-from app.config import config
-from app.database.firestore import db
 
 logger = logging.getLogger("anjurxbot.firebase_service")
 

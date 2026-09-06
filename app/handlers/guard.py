@@ -42,7 +42,7 @@ async def cmd_guard(message: Message, bot: Bot):
     )
 
 
-@router.callbackQuery(F.data.startswith("guard:menu:"))
+@router.callback_query(F.data.startswith("guard:menu:"))
 async def cb_guard_menu(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not group_id and callback.message and callback.message.chat:
@@ -67,7 +67,7 @@ async def cb_guard_menu(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callbackQuery(F.data.startswith("guard:toggle:"))
+@router.callback_query(F.data.startswith("guard:toggle:"))
 async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     parts = callback.data.split(":")
     if len(parts) < 4:
@@ -98,7 +98,7 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     await callback.answer(f"Sozlama {status_text}")
 
 
-@router.callbackQuery(F.data.startswith("guard:cycle_punishment:"))
+@router.callback_query(F.data.startswith("guard:cycle_punishment:"))
 async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
@@ -122,7 +122,7 @@ async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     await callback.answer(f"Jazo turi o'zgartirildi: {new_punish.upper()}")
 
 
-@router.callbackQuery(F.data.startswith("guard:threshold:"))
+@router.callback_query(F.data.startswith("guard:threshold:"))
 async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
     parts = callback.data.split(":")
     if len(parts) < 4:
@@ -164,7 +164,7 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
     await callback.answer(msg)
 
 
-@router.callbackQuery(F.data.startswith("guard:words:"))
+@router.callback_query(F.data.startswith("guard:words:"))
 async def cb_guard_words(callback: CallbackQuery, bot: Bot, state: FSMContext):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):

@@ -3,7 +3,7 @@ services:
     name: anjurxbot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m app.web_service
+    startCommand: python main.py
     plan: free
     envVars:
       - key: PYTHON_VERSION
