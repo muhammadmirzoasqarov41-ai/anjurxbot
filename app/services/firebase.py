@@ -6,7 +6,19 @@ import time
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-import pytz
+
+try:
+    import pytz
+    def _get_tz():
+        return pytz.timezone(config.timezone)
+except ImportError:
+    try:
+        from zoneinfo import ZoneInfo
+        def _get_tz():
+            return ZoneInfo(config.timezone)
+    except Exception:
+        def _get_tz():
+            return None
 
 from app.config import config
 from app.database.firestore import db
@@ -15,13 +27,17 @@ logger = logging.getLogger("anjurxbot.firebase_service")
 
 
 def get_current_time_iso() -> str:
-    tz = pytz.timezone(config.timezone)
-    return datetime.now(tz).isoformat()
+    tz = _get_tz()
+    if tz:
+        return datetime.now(tz).isoformat()
+    return datetime.utcnow().isoformat()
 
 
 def get_today_date_str() -> str:
-    tz = pytz.timezone(config.timezone)
-    return datetime.now(tz).strftime("%Y-%m-%d")
+    tz = _get_tz()
+    if tz:
+        return datetime.now(tz).strftime("%Y-%m-%d")
+    return datetime.utcnow().strftime("%Y-%m-%d")
 
 
 class FirebaseService:
