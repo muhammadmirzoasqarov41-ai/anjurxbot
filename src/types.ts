@@ -39,7 +39,29 @@ export interface TelegramGroup {
   group_id: number;
   title: string;
   username?: string;
+  type?: string;
+  owner_id?: number;
+  owner?: {
+    user_id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    is_bot?: boolean;
+  };
+  admins?: Array<{
+    user_id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    status?: string;
+    is_owner?: boolean;
+    is_bot?: boolean;
+    custom_title?: string;
+  }>;
+  admin_ids?: number[];
   members_count: number;
+  is_active?: boolean;
+  bot_status?: string;
   guard: GuardSettings;
   fsub_channels: ForceSubChannel[];
   created_at: string;

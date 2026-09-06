@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Sliders, Plus, X, Save, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Shield, ShieldAlert, Sliders, Plus, X, Save, CheckCircle2, AlertCircle, Crown, UserCheck, Users, Bot, Info } from 'lucide-react';
 import { TelegramGroup, GuardSettings } from '../types';
 
 interface GuardViewProps {
@@ -89,6 +89,21 @@ export const GuardView: React.FC<GuardViewProps> = ({ groups, onUpdateGuard }) =
     }
   };
 
+  if (groups.length === 0) {
+    return (
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 text-center max-w-xl mx-auto space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto">
+          <Shield className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-white">Hozircha guruhlar ro'yxatga olinmagan</h2>
+        <p className="text-slate-400 text-sm leading-relaxed">
+          Botni Telegram guruhingizga qo'shing va unga <b>Administrator</b> huquqlarini bering.
+          Bot avtomatik tarzda guruh nomi, egasi (owner) va adminlarini aniqlab Firestore bazasiga yozadi!
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -121,6 +136,58 @@ export const GuardView: React.FC<GuardViewProps> = ({ groups, onUpdateGuard }) =
           </select>
         </div>
       </div>
+
+      {/* Selected Group Metadata Card (Owner & Admins Info) */}
+      {selectedGroup && (
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold text-white">{selectedGroup.title}</span>
+                {selectedGroup.username && (
+                  <span className="text-xs text-blue-400 font-mono">@{selectedGroup.username}</span>
+                )}
+                <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
+                  ID: {selectedGroup.group_id}
+                </span>
+              </div>
+
+              {/* Owner and Admins details */}
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-slate-300">
+                {selectedGroup.owner ? (
+                  <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      Egasi: <b>{selectedGroup.owner.first_name || 'Guruh Egasi'}</b>
+                      {selectedGroup.owner.username && ` (@${selectedGroup.owner.username})`}
+                    </span>
+                  </div>
+                ) : selectedGroup.owner_id ? (
+                  <div className="flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg text-amber-300">
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Egasi ID: {selectedGroup.owner_id}</span>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-1 rounded-lg text-blue-300">
+                  <UserCheck className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Adminlar: <b>{selectedGroup.admins?.length || selectedGroup.admin_ids?.length || 1} ta</b></span>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded-lg text-purple-300">
+                  <Users className="w-3.5 h-3.5 text-purple-400" />
+                  <span>A'zolar: <b>{selectedGroup.members_count.toLocaleString()} ta</b></span>
+                </div>
+
+                <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-emerald-300">
+                  <Bot className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Bot holati: <b>{selectedGroup.bot_status || 'administrator'}</b></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Master Enable/Disable Switch Card */}
       <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 flex items-center justify-between">

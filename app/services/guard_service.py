@@ -24,9 +24,13 @@ class GuardService:
 
         chat_id = message.chat.id
         user_id = message.from_user.id
+        sender_chat_id = message.sender_chat.id if message.sender_chat else None
 
         # 1. Administrators and Group Owners bypass all guards
-        is_admin = await permission_service.is_user_admin(bot, chat_id, user_id)
+        if group_config.get("owner_id") == user_id:
+            return False
+
+        is_admin = await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id)
         if is_admin:
             return False
 

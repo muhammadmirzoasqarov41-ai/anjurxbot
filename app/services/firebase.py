@@ -74,7 +74,14 @@ class FirebaseService:
 
     # --- Group operations ---
     async def get_group(self, group_id: int) -> Optional[Dict[str, Any]]:
-        return await db.get_document("groups", str(group_id))
+        doc = await db.get_document("groups", str(group_id))
+        if doc:
+            try:
+                doc["group_id"] = int(doc.get("group_id") or group_id)
+                doc["chat_id"] = int(doc.get("chat_id") or group_id)
+            except Exception:
+                pass
+        return doc
 
     async def save_group(self, group_id: int, data: Dict[str, Any]) -> bool:
         doc_id = str(group_id)
@@ -84,6 +91,11 @@ class FirebaseService:
         existing = await db.get_document("groups", doc_id)
         if not existing:
             payload["created_at"] = now
+        try:
+            payload["group_id"] = int(group_id)
+            payload["chat_id"] = int(group_id)
+        except Exception:
+            pass
         return await db.set_document("groups", doc_id, payload, merge=True)
 
     async def update_group_settings(self, group_id: int, key_path: str, value: Any) -> bool:
@@ -91,7 +103,7 @@ class FirebaseService:
         doc_id = str(group_id)
         group = await db.get_document("groups", doc_id)
         if not group:
-            group = {"group_id": group_id, "guard_settings": {}, "force_sub": {}}
+            group = {"group_id": int(group_id), "chat_id": int(group_id), "guard_settings": {}, "force_sub": {}}
 
         # Parse nested paths e.g. "guard_settings.anti_link"
         parts = key_path.split(".")
@@ -105,7 +117,17 @@ class FirebaseService:
         return await db.set_document("groups", doc_id, group, merge=True)
 
     async def get_all_groups(self, limit: int = 100) -> List[Dict[str, Any]]:
-        return await db.list_documents("groups", limit=limit)
+        groups = await db.list_documents("groups", limit=limit)
+        for g in groups:
+            gid = g.get("group_id") or g.get("chat_id") or g.get("_id")
+            if gid is not None:
+                try:
+                    int_gid = int(gid)
+                    g["group_id"] = int_gid
+                    g["chat_id"] = int_gid
+                except (ValueError, TypeError):
+                    pass
+        return groups
 
     # --- Moderation Logs ---
     async def log_moderation_event(

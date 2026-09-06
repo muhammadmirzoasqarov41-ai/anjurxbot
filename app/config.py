@@ -4,13 +4,16 @@ Loads and validates environment variables securely without leaking credentials.
 """
 import os
 import json
+import base64
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
-from dotenv import load_dotenv
-
-# Load .env if present
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    # Load .env if present
+    load_dotenv()
+except ImportError:
+    pass
 
 logger = logging.getLogger("anjurxbot.config")
 
@@ -21,7 +24,9 @@ class Config:
     bot_username: str = field(default_factory=lambda: os.getenv("BOT_USERNAME", "").strip())
     admin_ids: List[int] = field(default_factory=list)
     firebase_service_account: Optional[dict] = None
-    firebase_project_id: str = field(default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", "").strip())
+    firebase_project_id: str = field(
+        default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", "anjurxbot").strip() or "anjurxbot"
+    )
     port: int = field(default_factory=lambda: int(os.getenv("PORT", "10000")))
     web_admin_key: str = field(default_factory=lambda: os.getenv("WEB_ADMIN_KEY", "").strip())
     timezone: str = field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Tashkent").strip())
@@ -49,7 +54,11 @@ class Config:
 
         # Parse Firebase Service Account
         raw_sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
-        file_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip() or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        raw_b64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64", "").strip()
+        file_path = (
+            os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip()
+            or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        )
 
         if raw_sa:
             try:
@@ -58,21 +67,54 @@ class Config:
                 elif os.path.exists(raw_sa):
                     with open(raw_sa, "r", encoding="utf-8") as f:
                         self.firebase_service_account = json.load(f)
+                else:
+                    # Attempt base64 decode of raw_sa if it's encoded
+                    try:
+                        decoded = base64.b64decode(raw_sa).decode("utf-8")
+                        if decoded.startswith("{") and decoded.endswith("}"):
+                            self.firebase_service_account = json.loads(decoded)
+                    except Exception:
+                        pass
             except Exception as e:
-                logger.error("error_type=FirebaseConfigError message=Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON")
+                logger.error(f"error_type=FirebaseConfigError message=Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
+
+        if not self.firebase_service_account and raw_b64:
+            try:
+                decoded = base64.b64decode(raw_b64).decode("utf-8")
+                self.firebase_service_account = json.loads(decoded)
+            except Exception as e:
+                logger.error(f"error_type=FirebaseConfigError message=Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64: {e}")
 
         if not self.firebase_service_account and file_path and os.path.exists(file_path):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     self.firebase_service_account = json.load(f)
             except Exception as e:
-                logger.error(f"error_type=FirebaseConfigError message=Failed to load credentials from file {file_path}")
+                logger.error(f"error_type=FirebaseConfigError message=Failed to load credentials from file {file_path}: {e}")
+
+        # Individual environment variables fallback (Render friendly)
+        if not self.firebase_service_account:
+            client_email = os.getenv("FIREBASE_CLIENT_EMAIL", "").strip()
+            private_key = os.getenv("FIREBASE_PRIVATE_KEY", "").strip()
+            project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip() or self.firebase_project_id
+            if client_email and private_key:
+                self.firebase_service_account = {
+                    "type": "service_account",
+                    "project_id": project_id,
+                    "private_key": private_key,
+                    "client_email": client_email,
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                }
 
         # Sanitize private_key if needed (e.g. literal escaped \n from env vars)
         if self.firebase_service_account and isinstance(self.firebase_service_account.get("private_key"), str):
             pk = self.firebase_service_account["private_key"]
             if "\\n" in pk:
                 self.firebase_service_account["private_key"] = pk.replace("\\n", "\n")
+
+        # Sync project_id from service account if specified
+        if self.firebase_service_account and self.firebase_service_account.get("project_id"):
+            self.firebase_project_id = self.firebase_service_account["project_id"]
 
     def is_admin(self, user_id: int) -> bool:
         return user_id in self.admin_ids

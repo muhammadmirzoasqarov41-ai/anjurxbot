@@ -27,9 +27,18 @@ async def cmd_panel(message: Message, bot: Bot):
         return
 
     chat_id = message.chat.id
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
 
-    is_admin = await permission_service.is_user_admin(bot, chat_id, user_id)
+    # Ensure group is registered and admins are populated
+    await group_service.get_or_register_group(
+        chat_id,
+        title=message.chat.title or "",
+        chat=message.chat,
+        bot=bot
+    )
+
+    is_admin = await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id)
     if not is_admin:
         await message.reply("❌ Bu panel faqat guruh administratorlari uchun ochiq.")
         return
@@ -143,17 +152,31 @@ async def cb_global_groups(callback: CallbackQuery):
         await callback.answer("Ruxsat yo'q.", show_alert=True)
         return
 
-    all_groups = await firebase_service.get_all_groups(limit=50)
+    all_groups = await firebase_service.get_all_groups(limit=100)
     if not all_groups:
-        await callback.message.reply("Hozircha faol guruhlar mavjud emas.")
+        await callback.message.reply(
+            "👥 <b>Ulangan guruhlar:</b>\n\n"
+            "Hozircha bazada guruhlar mavjud emas.\n"
+            "Botni biror guruhga qo'shing va administrator huquqini bering.",
+            parse_mode="HTML"
+        )
         await callback.answer()
         return
 
-    lines = ["👥 <b>Ulangan guruhlar:</b>\n"]
+    lines = [f"👥 <b>Ulangan guruhlar ro'yxati ({len(all_groups)} ta):</b>\n"]
     for idx, g in enumerate(all_groups[:25], 1):
         title = g.get("title") or "Noma'lum guruh"
-        gid = g.get("group_id") or g.get("_id")
-        lines.append(f"{idx}. <b>{title}</b> (ID: <code>{gid}</code>)")
+        gid = g.get("group_id") or g.get("chat_id") or g.get("_id")
+        owner_id = g.get("owner_id")
+        owner_str = f"Egasi: <code>{owner_id}</code>" if owner_id else "Egasi: Aniqlanmagan"
+        admins_cnt = len(g.get("admins", []))
+        bot_st = "👑 Admin" if g.get("bot_status") in ("administrator", "creator") else "👤 A'zo"
+        status_sym = "🟢" if g.get("is_active", True) else "🔴"
+        lines.append(
+            f"{idx}. {status_sym} <b>{title}</b>\n"
+            f"   ID: <code>{gid}</code> | {bot_st}\n"
+            f"   {owner_str} | Adminlar: <b>{admins_cnt}</b> ta\n"
+        )
 
     await callback.message.reply("\n".join(lines), parse_mode="HTML")
     await callback.answer()
@@ -199,7 +222,9 @@ async def cmd_warn(message: Message, bot: Bot):
     if message.chat.type not in ("group", "supergroup"):
         return
 
-    if not await permission_service.is_user_admin(bot, message.chat.id, message.from_user.id):
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    user_id = message.from_user.id if message.from_user else 0
+    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 
@@ -216,7 +241,7 @@ async def cmd_warn(message: Message, bot: Bot):
         await message.reply("Adminlarga ogohlantirish berib bo'lmaydi.")
         return
 
-    group_config = await group_service.get_or_register_group(message.chat.id)
+    group_config = await group_service.get_or_register_group(message.chat.id, message.chat.title or "", chat=message.chat, bot=bot)
     warn_limit = group_config.get("guard_settings", {}).get("warn_limit", 3)
     punishment_type = group_config.get("guard_settings", {}).get("punishment", "mute")
 
@@ -255,7 +280,9 @@ async def cmd_mute(message: Message, bot: Bot):
     if message.chat.type not in ("group", "supergroup"):
         return
 
-    if not await permission_service.is_user_admin(bot, message.chat.id, message.from_user.id):
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    user_id = message.from_user.id if message.from_user else 0
+    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 
@@ -293,7 +320,9 @@ async def cmd_unmute(message: Message, bot: Bot):
     if message.chat.type not in ("group", "supergroup"):
         return
 
-    if not await permission_service.is_user_admin(bot, message.chat.id, message.from_user.id):
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    user_id = message.from_user.id if message.from_user else 0
+    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 

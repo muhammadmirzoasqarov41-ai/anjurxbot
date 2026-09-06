@@ -21,9 +21,17 @@ async def cmd_setup(message: Message, bot: Bot):
         return
 
     chat_id = message.chat.id
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
 
-    if not await permission_service.is_user_admin(bot, chat_id, user_id):
+    await group_service.get_or_register_group(
+        chat_id,
+        title=message.chat.title or "",
+        chat=message.chat,
+        bot=bot
+    )
+
+    if not await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun ruxsat etilgan.")
         return
 

@@ -40,13 +40,19 @@ class ForceSubscribeMiddleware(BaseMiddleware):
 
         chat_id = event.chat.id
         user_id = event.from_user.id
+        sender_chat_id = event.sender_chat.id if event.sender_chat else None
 
         # 1. Admin bypass
-        if await permission_service.is_user_admin(bot, chat_id, user_id):
+        if await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id):
             return await handler(event, data)
 
         # 2. Check group force_sub settings
-        group_config = await group_service.get_or_register_group(chat_id, event.chat.title or "")
+        group_config = await group_service.get_or_register_group(
+            chat_id,
+            title=event.chat.title or "",
+            chat=event.chat,
+            bot=bot
+        )
         fsub_conf = group_config.get("force_sub", {})
         if not fsub_conf.get("is_enabled", False):
             return await handler(event, data)

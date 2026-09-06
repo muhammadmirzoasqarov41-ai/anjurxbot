@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Users, Radio, AlertTriangle, CheckCircle, Flame, ExternalLink, Zap, Clock, Server } from 'lucide-react';
+import { Shield, Users, Radio, AlertTriangle, CheckCircle, Flame, ExternalLink, Zap, Clock, Server, Crown, UserCheck } from 'lucide-react';
 import { SystemStats, TelegramGroup, ModerationLog } from '../types';
 
 interface DashboardViewProps {
@@ -140,56 +140,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {groups.map((group) => (
-              <div
-                key={group._id}
-                className="bg-slate-800/40 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-700 transition-colors"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-white text-base">{group.title}</span>
-                    {group.guard.enabled ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Faol
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-400">
-                        O'chirilgan
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-400">
-                    <span>ID: {group.group_id}</span>
-                    {group.username && <span>@{group.username}</span>}
-                    <span>{group.members_count.toLocaleString()} ta a'zo</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-wrap gap-1 text-[11px]">
-                    {group.guard.anti_spam && (
-                      <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400">Spam</span>
-                    )}
-                    {group.guard.anti_flood && (
-                      <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400">Flood</span>
-                    )}
-                    {group.guard.anti_link && (
-                      <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400">Link</span>
-                    )}
-                    {group.guard.bad_words && (
-                      <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">So'zlar</span>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => onNavigate('guard')}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors"
-                  >
-                    Sozlash
-                  </button>
-                </div>
+            {groups.length === 0 ? (
+              <div className="bg-slate-800/30 border border-slate-800/80 rounded-xl p-6 text-center">
+                <p className="text-slate-400 text-sm">Hozircha guruhlar mavjud emas.</p>
+                <p className="text-slate-500 text-xs mt-1">
+                  Botni Telegram guruhga qo'shing va admin qiling. Guruh va uning egasi avtomatik bu yerda paydo bo'ladi.
+                </p>
               </div>
-            ))}
+            ) : (
+              groups.map((group) => (
+                <div
+                  key={group._id}
+                  className="bg-slate-800/40 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-700 transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-white text-base">{group.title}</span>
+                      {group.guard.enabled ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Faol
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-400">
+                          O'chirilgan
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-400">
+                      <span>ID: {group.group_id}</span>
+                      {group.username && <span>@{group.username}</span>}
+                      <span>{group.members_count.toLocaleString()} ta a'zo</span>
+                      {group.owner && (
+                        <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
+                          <Crown className="w-3 h-3" />
+                          {group.owner.first_name || 'Egasi'}
+                        </span>
+                      )}
+                      {(group.admins?.length ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
+                          <UserCheck className="w-3 h-3" />
+                          {group.admins?.length} admin
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-1 text-[11px]">
+                      {group.guard.anti_spam && (
+                        <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400">Spam</span>
+                      )}
+                      {group.guard.anti_flood && (
+                        <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400">Flood</span>
+                      )}
+                      {group.guard.anti_link && (
+                        <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400">Link</span>
+                      )}
+                      {group.guard.bad_words && (
+                        <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">So'zlar</span>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => onNavigate('guard')}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors"
+                    >
+                      Sozlash
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

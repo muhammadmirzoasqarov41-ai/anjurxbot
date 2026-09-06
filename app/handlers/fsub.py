@@ -24,14 +24,20 @@ async def cmd_fsub(message: Message, bot: Bot):
         return
 
     chat_id = message.chat.id
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
 
-    is_admin = await permission_service.is_user_admin(bot, chat_id, user_id)
+    group_config = await group_service.get_or_register_group(
+        chat_id,
+        message.chat.title or "",
+        chat=message.chat,
+        bot=bot
+    )
+
+    is_admin = await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id)
     if not is_admin:
         await message.reply("❌ Bu sozlama faqat guruh adminlari uchun ruxsat etilgan.")
         return
-
-    group_config = await group_service.get_or_register_group(chat_id, message.chat.title or "")
     fsub_settings = group_config.get("force_sub", {})
     is_enabled = fsub_settings.get("is_enabled", False)
     channels = fsub_settings.get("channels", [])

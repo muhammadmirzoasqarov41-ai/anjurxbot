@@ -43,6 +43,20 @@ export const ForceSubView: React.FC<ForceSubViewProps> = ({
     }
   };
 
+  if (groups.length === 0) {
+    return (
+      <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-8 text-center max-w-xl mx-auto space-y-4">
+        <div className="w-16 h-16 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto">
+          <Radio className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-white">Guruhlar mavjud emas</h2>
+        <p className="text-slate-400 text-sm leading-relaxed">
+          Majburiy obuna sozlamalarini boshqarish uchun avval botni biror Telegram guruhga qo'shib, unga admin huquqini bering.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

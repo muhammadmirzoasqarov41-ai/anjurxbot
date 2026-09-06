@@ -33,7 +33,12 @@ class GuardMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         chat_id = event.chat.id
-        group_config = await group_service.get_or_register_group(chat_id, event.chat.title or "")
+        group_config = await group_service.get_or_register_group(
+            chat_id,
+            title=event.chat.title or "",
+            chat=event.chat,
+            bot=bot
+        )
 
         # Execute guard checks
         is_violation = await guard_service.process_message(bot, event, group_config)

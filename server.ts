@@ -1,9 +1,12 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import crypto from 'crypto';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { initializeApp, cert, getApps, ServiceAccount } from 'firebase-admin/app';
+import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { createServer as createViteServer } from 'vite';
 
 dotenv.config();
@@ -22,19 +25,132 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// --------------------------------------------------------------------------
+// Firebase Admin SDK Firestore Initialization
+// --------------------------------------------------------------------------
+let firestoreDb: Firestore | null = null;
+let firestoreInitError: string | null = null;
+
+function getFirestoreDb(): Firestore | null {
+  if (firestoreDb) return firestoreDb;
+
+  try {
+    if (getApps().length > 0) {
+      firestoreDb = getFirestore();
+      return firestoreDb;
+    }
+
+    const base64Creds = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+    const jsonCreds = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    const pathCreds = process.env.FIREBASE_CREDENTIALS_PATH;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
+    const projectId = process.env.FIREBASE_PROJECT_ID || 'anjurxbot';
+
+    let rawObj: any = null;
+
+    if (base64Creds) {
+      try {
+        const decoded = Buffer.from(base64Creds, 'base64').toString('utf-8');
+        rawObj = JSON.parse(decoded);
+      } catch (e: any) {
+        console.error('Error decoding FIREBASE_SERVICE_ACCOUNT_BASE64:', e.message);
+      }
+    } else if (jsonCreds) {
+      try {
+        rawObj = JSON.parse(jsonCreds);
+      } catch (e: any) {
+        console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_JSON:', e.message);
+      }
+    } else if (pathCreds && fs.existsSync(pathCreds)) {
+      try {
+        const raw = fs.readFileSync(pathCreds, 'utf-8');
+        rawObj = JSON.parse(raw);
+      } catch (e: any) {
+        console.error('Error reading FIREBASE_CREDENTIALS_PATH:', e.message);
+      }
+    }
+
+    if (!rawObj && clientEmail && privateKeyRaw) {
+      rawObj = {
+        project_id: projectId,
+        client_email: clientEmail,
+        private_key: privateKeyRaw,
+      };
+    }
+
+    let creds: ServiceAccount | null = null;
+
+    if (rawObj) {
+      const pid =
+        rawObj.project_id ||
+        rawObj.projectId ||
+        rawObj.FIREBASE_PROJECT_ID ||
+        process.env.FIREBASE_PROJECT_ID ||
+        projectId;
+      const email =
+        rawObj.client_email ||
+        rawObj.clientEmail ||
+        rawObj.FIREBASE_CLIENT_EMAIL ||
+        process.env.FIREBASE_CLIENT_EMAIL ||
+        clientEmail;
+      const key = (
+        rawObj.private_key ||
+        rawObj.privateKey ||
+        rawObj.FIREBASE_PRIVATE_KEY ||
+        process.env.FIREBASE_PRIVATE_KEY ||
+        privateKeyRaw ||
+        ''
+      ).replace(/\\n/g, '\n');
+
+      if (pid && email && key) {
+        creds = {
+          projectId: pid,
+          clientEmail: email,
+          privateKey: key,
+        };
+      }
+    }
+
+    if (creds) {
+      initializeApp({
+        credential: cert(creds),
+        projectId: (creds as any).projectId || projectId,
+      });
+      firestoreDb = getFirestore();
+      console.log(`[Firebase Admin] Successfully connected to Firestore project: ${(creds as any).projectId || projectId}`);
+    } else if (process.env.FIREBASE_PROJECT_ID) {
+      // Try Application Default Credentials
+      initializeApp({
+        projectId,
+      });
+      firestoreDb = getFirestore();
+      console.log(`[Firebase Admin] Initialized with Application Default Credentials for project: ${projectId}`);
+    }
+  } catch (err: any) {
+    firestoreInitError = err.message;
+    console.warn('[Firebase Admin] Notice: Firestore live connection unavailable, falling back to local store:', err.message);
+    firestoreDb = null;
+  }
+
+  return firestoreDb;
+}
+
+// Immediately attempt connection
+getFirestoreDb();
+
 // Helper for HMAC signature (matching original Python web_admin.py)
 function computeSignature(value: string): string {
   return crypto.createHmac('sha256', WEB_ADMIN_KEY).update(value).digest('hex');
 }
 
 function isAuthenticated(req: Request): boolean {
-  // Check cookie or Authorization header
-  const cookieVal = req.cookies[COOKIE_NAME];
+  const cookieVal = req.cookies && req.cookies[COOKIE_NAME];
   if (cookieVal && typeof cookieVal === 'string' && cookieVal.includes(':')) {
     const [identity, sig] = cookieVal.split(':', 2);
     if (identity === 'admin') {
       const expected = computeSignature(identity);
-      if (crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      if (sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
         return true;
       }
     }
@@ -48,7 +164,6 @@ function isAuthenticated(req: Request): boolean {
     }
   }
 
-  // If WEB_ADMIN_KEY is not configured by user in production, allow demo session
   if (!process.env.WEB_ADMIN_KEY) {
     return true;
   }
@@ -57,7 +172,7 @@ function isAuthenticated(req: Request): boolean {
 }
 
 // --------------------------------------------------------------------------
-// In-Memory Data Store (seeded with realistic Telegram moderation records)
+// Schema Interfaces & Fallback Store
 // --------------------------------------------------------------------------
 interface StoredUser {
   _id: string;
@@ -77,7 +192,29 @@ interface StoredGroup {
   group_id: number;
   title: string;
   username?: string;
+  type?: string;
+  owner_id?: number;
+  owner?: {
+    user_id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    is_bot?: boolean;
+  };
+  admins?: Array<{
+    user_id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+    status?: string;
+    is_owner?: boolean;
+    is_bot?: boolean;
+    custom_title?: string;
+  }>;
+  admin_ids?: number[];
   members_count: number;
+  is_active?: boolean;
+  bot_status?: string;
   guard: {
     enabled: boolean;
     anti_spam: boolean;
@@ -102,152 +239,6 @@ interface StoredGroup {
   created_at: string;
 }
 
-const users: StoredUser[] = [
-  {
-    _id: 'usr_1001',
-    user_id: 618492011,
-    username: 'ali_sharipov',
-    first_name: 'Ali',
-    last_name: 'Sharipov',
-    created_at: '2026-08-12 14:32:00',
-    warnings_count: 0,
-    is_banned: false,
-    is_muted: false,
-    language_code: 'uz',
-  },
-  {
-    _id: 'usr_1002',
-    user_id: 729104882,
-    username: 'botir_dev',
-    first_name: 'Botir',
-    last_name: 'Qodirov',
-    created_at: '2026-08-15 09:15:20',
-    warnings_count: 1,
-    is_banned: false,
-    is_muted: false,
-    language_code: 'uz',
-  },
-  {
-    _id: 'usr_1003',
-    user_id: 938217645,
-    username: 'spammer_crypto_bot',
-    first_name: 'Crypto Deals',
-    created_at: '2026-08-20 18:40:10',
-    warnings_count: 3,
-    is_banned: true,
-    is_muted: true,
-    language_code: 'en',
-  },
-  {
-    _id: 'usr_1004',
-    user_id: 849201993,
-    username: 'nodira_k',
-    first_name: 'Nodira',
-    last_name: 'Karimova',
-    created_at: '2026-08-22 11:05:44',
-    warnings_count: 0,
-    is_banned: false,
-    is_muted: false,
-    language_code: 'uz',
-  },
-  {
-    _id: 'usr_1005',
-    user_id: 592810447,
-    username: 'jasur_expert',
-    first_name: 'Jasur',
-    last_name: 'Beknazarov',
-    created_at: '2026-08-28 16:50:30',
-    warnings_count: 2,
-    is_banned: false,
-    is_muted: true,
-    language_code: 'uz',
-  },
-  {
-    _id: 'usr_1006',
-    user_id: 481920311,
-    username: 'telegram_tester',
-    first_name: 'Sardor',
-    last_name: 'Rahimov',
-    created_at: '2026-09-01 08:20:15',
-    warnings_count: 0,
-    is_banned: false,
-    is_muted: false,
-    language_code: 'uz',
-  },
-];
-
-const groups: StoredGroup[] = [
-  {
-    _id: 'grp_2001',
-    group_id: -1001928472910,
-    title: "O'zbek Dasturchilari Jamiyati",
-    username: 'uz_devs_group',
-    members_count: 2840,
-    guard: {
-      enabled: true,
-      anti_spam: true,
-      anti_flood: true,
-      anti_link: true,
-      anti_ads: true,
-      anti_repeat: true,
-      bad_words: true,
-      new_member_protection: true,
-      flood_limit: 5,
-      flood_window: 5,
-      mute_duration: 300,
-      bad_words_list: ['ahmoq', 'yaramas', 'scam', 'reklama', 'stavka', 'kazino', '1xbet'],
-    },
-    fsub_channels: [
-      {
-        channel_id: -1001829471920,
-        username: 'anjurx_news',
-        title: 'AnjurX Rasmiy Kanali',
-        invite_link: 'https://t.me/anjurx_news',
-        is_active: true,
-      },
-      {
-        channel_id: -1001994827102,
-        username: 'uz_dev_jobs',
-        title: 'IT Vakansiyalar Tashkent',
-        invite_link: 'https://t.me/uz_dev_jobs',
-        is_active: true,
-      },
-    ],
-    created_at: '2026-07-10 10:00:00',
-  },
-  {
-    _id: 'grp_2002',
-    group_id: -1002049182741,
-    title: 'Python & AI O‘zbekiston',
-    username: 'py_ai_uz',
-    members_count: 1420,
-    guard: {
-      enabled: true,
-      anti_spam: true,
-      anti_flood: true,
-      anti_link: false,
-      anti_ads: true,
-      anti_repeat: true,
-      bad_words: true,
-      new_member_protection: false,
-      flood_limit: 6,
-      flood_window: 6,
-      mute_duration: 600,
-      bad_words_list: ['kazino', 'lotereya', 'pul ishlash', 'bitcoin bot'],
-    },
-    fsub_channels: [
-      {
-        channel_id: -1001829471920,
-        username: 'anjurx_news',
-        title: 'AnjurX Rasmiy Kanali',
-        invite_link: 'https://t.me/anjurx_news',
-        is_active: true,
-      },
-    ],
-    created_at: '2026-08-01 12:30:00',
-  },
-];
-
 interface ModerationRecord {
   id: string;
   group_id: number;
@@ -259,76 +250,93 @@ interface ModerationRecord {
   timestamp: string;
 }
 
-const moderationLogs: ModerationRecord[] = [
-  {
-    id: 'mod_1',
-    group_id: -1001928472910,
-    group_title: "O'zbek Dasturchilari Jamiyati",
-    user_id: 938217645,
-    username: 'spammer_crypto_bot',
-    action: 'ban',
-    reason: 'Anti-Spam: Taqiqlangan reklama va crypto havolalari yuborildi',
-    timestamp: '2026-09-02 23:14:02',
-  },
-  {
-    id: 'mod_2',
-    group_id: -1001928472910,
-    group_title: "O'zbek Dasturchilari Jamiyati",
-    user_id: 592810447,
-    username: 'jasur_expert',
-    action: 'mute',
-    reason: 'Anti-Flood: 5 soniyada 7 ta xabar yuborildi (5 daqiqa mute)',
-    timestamp: '2026-09-03 04:22:18',
-  },
-  {
-    id: 'mod_3',
-    group_id: -1002049182741,
-    group_title: 'Python & AI O‘zbekiston',
-    user_id: 729104882,
-    username: 'botir_dev',
-    action: 'warn',
-    reason: "Anti-Repeat: Ketma-ket bir xil xabar 3 marta takrorlandi (1/3 ogohlantirish)",
-    timestamp: '2026-09-03 06:10:45',
-  },
-];
+// Fallback in-memory data store if Firestore is not yet configured with credentials
+const memoryUsers: StoredUser[] = [];
+const memoryGroups: StoredGroup[] = [];
+const memoryModerationLogs: ModerationRecord[] = [];
 
-let stats = {
-  total_users: 6,
-  total_groups: 2,
-  active_guard_groups: 2,
-  messages_scanned: 14820,
-  spam_blocked: 342,
-  links_deleted: 189,
-  warnings_issued: 68,
-};
+// Helper to map a Firestore group document to StoredGroup
+function mapFirestoreGroup(docId: string, data: any): StoredGroup {
+  const gid = Number(data.group_id || data.chat_id || docId);
+  const guardRaw = data.guard || data.guard_settings || {};
+  const fsubRaw = data.force_subscribe || data.force_sub || {};
+
+  const channelsList = Array.isArray(fsubRaw.channels)
+    ? fsubRaw.channels
+    : Array.isArray(fsubRaw)
+    ? fsubRaw
+    : [];
+
+  return {
+    _id: docId,
+    group_id: gid,
+    title: data.title || `Guruh ${gid}`,
+    username: data.username || undefined,
+    type: data.type || 'supergroup',
+    owner_id: data.owner_id ? Number(data.owner_id) : undefined,
+    owner: data.owner || undefined,
+    admins: Array.isArray(data.admins) ? data.admins : [],
+    admin_ids: Array.isArray(data.admin_ids) ? data.admin_ids.map(Number) : [],
+    members_count: Number(data.members_count || 0),
+    is_active: data.is_active !== undefined ? Boolean(data.is_active) : true,
+    bot_status: data.bot_status || 'administrator',
+    guard: {
+      enabled: guardRaw.enabled !== undefined ? Boolean(guardRaw.enabled) : Boolean(data.is_active ?? true),
+      anti_spam: Boolean(guardRaw.anti_spam ?? true),
+      anti_flood: Boolean(guardRaw.anti_flood ?? true),
+      anti_link: Boolean(guardRaw.anti_link ?? true),
+      anti_ads: Boolean(guardRaw.anti_ads ?? true),
+      anti_repeat: Boolean(guardRaw.anti_repeat ?? true),
+      bad_words: Boolean(guardRaw.bad_words ?? guardRaw.bad_words_filter ?? true),
+      new_member_protection: Boolean(guardRaw.new_member_protection ?? guardRaw.delete_service_messages ?? true),
+      flood_limit: Number(guardRaw.flood_limit ?? 5),
+      flood_window: Number(guardRaw.flood_window ?? 5),
+      mute_duration: Number(guardRaw.mute_duration ?? 300),
+      bad_words_list: Array.isArray(guardRaw.bad_words_list)
+        ? guardRaw.bad_words_list
+        : Array.isArray(guardRaw.bad_words)
+        ? guardRaw.bad_words
+        : [],
+    },
+    fsub_channels: channelsList.map((ch: any) => ({
+      channel_id: ch.channel_id,
+      username: ch.username || '',
+      title: ch.title || 'Kanal',
+      invite_link: ch.invite_link || (ch.username ? `https://t.me/${ch.username}` : ''),
+      is_active: Boolean(fsubRaw.enabled ?? fsubRaw.is_enabled ?? true),
+    })),
+    created_at: data.created_at || data.updated_at || data.added_at || new Date().toISOString(),
+  };
+}
 
 // --------------------------------------------------------------------------
 // Health & Diagnostic Routes
 // --------------------------------------------------------------------------
 app.get('/health', (req: Request, res: Response) => {
-  // Matching original Python aiohttp web_admin.py /health endpoint
   res.json({ status: 'ok' });
 });
 
 app.get('/api/health', (req: Request, res: Response) => {
   const uptime = Math.floor((Date.now() - startTime) / 1000);
+  const db = getFirestoreDb();
   res.json({
     status: 'ok',
     app: 'AnjurXBot Node.js Web Admin & Engine',
     uptime_seconds: uptime,
     bot_configured: Boolean(BOT_TOKEN),
-    firebase_mode: process.env.FIREBASE_PROJECT_ID ? 'firestore_configured' : 'in_memory_active',
+    firestore_status: db ? 'connected' : 'fallback_memory',
+    firestore_project: process.env.FIREBASE_PROJECT_ID || 'anjurxbot',
+    firestore_error: firestoreInitError,
     auth_protected: Boolean(process.env.WEB_ADMIN_KEY),
   });
 });
 
 // --------------------------------------------------------------------------
-// Authentication Routes (compatible with both HTML Form & JSON Fetch)
+// Authentication Routes
 // --------------------------------------------------------------------------
 app.post(['/login', '/api/login'], (req: Request, res: Response) => {
   const key = req.body?.key || req.body?.password || '';
   
-  // Verify key against WEB_ADMIN_KEY or allow demo access
   const isKeyValid = 
     !process.env.WEB_ADMIN_KEY || 
     key === WEB_ADMIN_KEY || 
@@ -385,9 +393,9 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
 });
 
 // --------------------------------------------------------------------------
-// Users API (matches list_users from FirebaseService and web_admin.py)
+// Users API (Real Firestore queries with memory fallback)
 // --------------------------------------------------------------------------
-app.get('/api/users', (req: Request, res: Response) => {
+app.get('/api/users', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -396,9 +404,54 @@ app.get('/api/users', (req: Request, res: Response) => {
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '50'), 10)));
   const search = String(req.query.search || '').toLowerCase().trim();
 
-  let filtered = users;
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const snapshot = await db.collection('users').get();
+      let usersList: StoredUser[] = snapshot.docs.map((doc: any) => {
+        const d = doc.data();
+        return {
+          _id: doc.id,
+          user_id: Number(d.user_id || doc.id),
+          username: d.username,
+          first_name: d.first_name,
+          last_name: d.last_name,
+          created_at: d.created_at || d.updated_at || new Date().toISOString(),
+          warnings_count: Number(d.warnings_count || 0),
+          is_banned: Boolean(d.is_banned || false),
+          is_muted: Boolean(d.is_muted || false),
+          language_code: d.language_code || 'uz',
+        };
+      });
+
+      if (search) {
+        usersList = usersList.filter(
+          (u) =>
+            String(u.user_id).includes(search) ||
+            (u.username && u.username.toLowerCase().includes(search)) ||
+            (u.first_name && u.first_name.toLowerCase().includes(search)) ||
+            (u.last_name && u.last_name.toLowerCase().includes(search))
+        );
+      }
+
+      const start = (page - 1) * limit;
+      const pageUsers = usersList.slice(start, start + limit);
+
+      return res.json({
+        users: pageUsers,
+        total: usersList.length,
+        page,
+        limit,
+        total_pages: Math.ceil(usersList.length / limit) || 1,
+      });
+    } catch (err: any) {
+      console.error('[API /users] Firestore query error:', err.message);
+    }
+  }
+
+  let filtered = memoryUsers;
   if (search) {
-    filtered = users.filter(
+    filtered = memoryUsers.filter(
       (u) =>
         String(u.user_id).includes(search) ||
         (u.username && u.username.toLowerCase().includes(search)) ||
@@ -410,7 +463,7 @@ app.get('/api/users', (req: Request, res: Response) => {
   const start = (page - 1) * limit;
   const pageUsers = filtered.slice(start, start + limit);
 
-  res.json({
+  return res.json({
     users: pageUsers,
     total: filtered.length,
     page,
@@ -419,7 +472,7 @@ app.get('/api/users', (req: Request, res: Response) => {
   });
 });
 
-app.post('/api/users', (req: Request, res: Response) => {
+app.post('/api/users', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -430,8 +483,36 @@ app.post('/api/users', (req: Request, res: Response) => {
   }
 
   const numId = Number(user_id);
-  let existing = users.find((u) => u.user_id === numId);
+  const nowStr = new Date().toISOString();
+  const db = getFirestoreDb();
 
+  if (db) {
+    try {
+      const userRef = db.collection('users').doc(String(numId));
+      const userDoc = await userRef.get();
+      const payload: any = {
+        user_id: numId,
+        username: username || '',
+        first_name: first_name || '',
+        last_name: last_name || '',
+        updated_at: nowStr,
+      };
+      if (!userDoc.exists) {
+        payload.created_at = nowStr;
+        payload.warnings_count = 0;
+        payload.is_banned = false;
+        payload.is_muted = false;
+        payload.language_code = 'uz';
+      }
+      await userRef.set(payload, { merge: true });
+      const fresh = await userRef.get();
+      return res.json({ status: 'ok', user: { _id: userRef.id, ...fresh.data() } });
+    } catch (err: any) {
+      console.error('[API POST /users] Firestore error:', err.message);
+    }
+  }
+
+  let existing = memoryUsers.find((u) => u.user_id === numId);
   if (existing) {
     if (username !== undefined) existing.username = username;
     if (first_name !== undefined) existing.first_name = first_name;
@@ -443,91 +524,188 @@ app.post('/api/users', (req: Request, res: Response) => {
       username,
       first_name,
       last_name,
-      created_at: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      created_at: nowStr.replace('T', ' ').substring(0, 19),
       warnings_count: 0,
       is_banned: false,
       is_muted: false,
       language_code: 'uz',
     };
-    users.unshift(existing);
-    stats.total_users = users.length;
+    memoryUsers.unshift(existing);
   }
 
-  res.json({ status: 'ok', user: existing });
+  return res.json({ status: 'ok', user: existing });
 });
 
 // --------------------------------------------------------------------------
-// Groups & Guard Settings API
+// Groups & Guard Settings API (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/groups', (req: Request, res: Response) => {
+app.get('/api/groups', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
-  res.json({ groups });
+
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const snapshot = await db.collection('groups').get();
+      const groupsList = snapshot.docs.map((doc: any) => mapFirestoreGroup(doc.id, doc.data()));
+      return res.json({ groups: groupsList });
+    } catch (err: any) {
+      console.error('[API /groups] Firestore query error:', err.message);
+    }
+  }
+
+  return res.json({ groups: memoryGroups });
 });
 
-app.get('/api/groups/:id', (req: Request, res: Response) => {
+app.get('/api/groups/:id', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
 
-  const id = req.params.id;
-  const group = groups.find((g) => g._id === id || String(g.group_id) === id);
+  const id = String(req.params.id);
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      const docRef = db.collection('groups').doc(id);
+      const doc = await docRef.get();
+      if (doc.exists) {
+        return res.json({ group: mapFirestoreGroup(doc.id, doc.data()) });
+      }
+
+      // Try numeric query for group_id / chat_id
+      const numId = Number(id);
+      if (!isNaN(numId)) {
+        const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
+        if (!query.empty) {
+          const matched = query.docs[0];
+          return res.json({ group: mapFirestoreGroup(matched.id, matched.data()) });
+        }
+      }
+    } catch (err: any) {
+      console.error(`[API /groups/${id}] Firestore query error:`, err.message);
+    }
+  }
+
+  const fallback = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
+  if (!fallback) {
+    return res.status(404).json({ error: 'Guruh topilmadi' });
+  }
+  return res.json({ group: fallback });
+});
+
+app.put('/api/groups/:id/guard', async (req: Request, res: Response) => {
+  if (!isAuthenticated(req)) {
+    return res.status(401).json({ error: 'Ruxsat berilmagan' });
+  }
+
+  const id = String(req.params.id);
+  const patch = req.body || {};
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      let docRef = db.collection('groups').doc(id);
+      let doc = await docRef.get();
+
+      if (!doc.exists) {
+        const numId = Number(id);
+        if (!isNaN(numId)) {
+          const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
+          if (!query.empty) {
+            docRef = query.docs[0].ref;
+            doc = query.docs[0];
+          }
+        }
+      }
+
+      if (doc.exists) {
+        const existingData = doc.data() || {};
+        const existingGuard = existingData.guard_settings || {};
+        const updatedGuard = {
+          ...existingGuard,
+          anti_spam: patch.anti_spam !== undefined ? patch.anti_spam : existingGuard.anti_spam,
+          anti_flood: patch.anti_flood !== undefined ? patch.anti_flood : existingGuard.anti_flood,
+          anti_link: patch.anti_link !== undefined ? patch.anti_link : existingGuard.anti_link,
+          anti_ads: patch.anti_ads !== undefined ? patch.anti_ads : existingGuard.anti_ads,
+          anti_repeat: patch.anti_repeat !== undefined ? patch.anti_repeat : existingGuard.anti_repeat,
+          bad_words_filter: patch.bad_words !== undefined ? patch.bad_words : existingGuard.bad_words_filter,
+          delete_service_messages: patch.new_member_protection !== undefined ? patch.new_member_protection : existingGuard.delete_service_messages,
+          flood_limit: patch.flood_limit !== undefined ? Number(patch.flood_limit) : existingGuard.flood_limit,
+          flood_window: patch.flood_window !== undefined ? Number(patch.flood_window) : existingGuard.flood_window,
+          mute_duration: patch.mute_duration !== undefined ? Number(patch.mute_duration) : existingGuard.mute_duration,
+          bad_words: patch.bad_words_list !== undefined ? patch.bad_words_list : existingGuard.bad_words,
+        };
+
+        const updatePayload: any = {
+          guard_settings: updatedGuard,
+          updated_at: new Date().toISOString(),
+        };
+        if (patch.enabled !== undefined) {
+          updatePayload.is_active = Boolean(patch.enabled);
+        }
+
+        await docRef.set(updatePayload, { merge: true });
+        const fresh = await docRef.get();
+        const mapped = mapFirestoreGroup(docRef.id, fresh.data());
+        return res.json({ status: 'ok', guard: mapped.guard });
+      }
+    } catch (err: any) {
+      console.error(`[API PUT /groups/${id}/guard] Firestore error:`, err.message);
+    }
+  }
+
+  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
   if (!group) {
     return res.status(404).json({ error: 'Guruh topilmadi' });
   }
-  res.json({ group });
-});
 
-app.put('/api/groups/:id/guard', (req: Request, res: Response) => {
-  if (!isAuthenticated(req)) {
-    return res.status(401).json({ error: 'Ruxsat berilmagan' });
-  }
-
-  const id = req.params.id;
-  const group = groups.find((g) => g._id === id || String(g.group_id) === id);
-  if (!group) {
-    return res.status(404).json({ error: 'Guruh topilmadi' });
-  }
-
-  const patch = req.body;
   group.guard = {
     ...group.guard,
     ...patch,
   };
 
-  stats.active_guard_groups = groups.filter((g) => g.guard.enabled).length;
-
-  res.json({ status: 'ok', guard: group.guard });
+  return res.json({ status: 'ok', guard: group.guard });
 });
 
 // --------------------------------------------------------------------------
-// Force Subscribe (FSub) Channels API
+// Force Subscribe (FSub) Channels API (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/groups/:id/fsub', (req: Request, res: Response) => {
+app.get('/api/groups/:id/fsub', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
 
-  const id = req.params.id;
-  const group = groups.find((g) => g._id === id || String(g.group_id) === id);
+  const id = String(req.params.id);
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      const docRef = db.collection('groups').doc(id);
+      const doc = await docRef.get();
+      if (doc.exists) {
+        const mapped = mapFirestoreGroup(doc.id, doc.data());
+        return res.json({ channels: mapped.fsub_channels });
+      }
+    } catch (err: any) {
+      console.error(`[API GET /groups/${id}/fsub] Firestore error:`, err.message);
+    }
+  }
+
+  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
   if (!group) {
     return res.status(404).json({ error: 'Guruh topilmadi' });
   }
-  res.json({ channels: group.fsub_channels });
+  return res.json({ channels: group.fsub_channels });
 });
 
-app.post('/api/groups/:id/fsub', (req: Request, res: Response) => {
+app.post('/api/groups/:id/fsub', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
 
-  const id = req.params.id;
-  const group = groups.find((g) => g._id === id || String(g.group_id) === id);
-  if (!group) {
-    return res.status(404).json({ error: 'Guruh topilmadi' });
-  }
-
+  const id = String(req.params.id);
   const { channel_id, username, title, invite_link } = req.body;
   if (!channel_id || !title) {
     return res.status(400).json({ error: 'channel_id va title kiritilishi lozim' });
@@ -535,23 +713,121 @@ app.post('/api/groups/:id/fsub', (req: Request, res: Response) => {
 
   const newChannel = {
     channel_id,
-    username: username ? username.replace(/^@/, '') : '',
+    username: username ? String(username).replace(/^@/, '') : '',
     title,
-    invite_link: invite_link || `https://t.me/${username ? username.replace(/^@/, '') : ''}`,
+    invite_link: invite_link || `https://t.me/${username ? String(username).replace(/^@/, '') : ''}`,
     is_active: true,
   };
 
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      let docRef = db.collection('groups').doc(id);
+      let doc = await docRef.get();
+
+      if (!doc.exists) {
+        const numId = Number(id);
+        if (!isNaN(numId)) {
+          const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
+          if (!query.empty) {
+            docRef = query.docs[0].ref;
+            doc = query.docs[0];
+          }
+        }
+      }
+
+      if (doc.exists) {
+        const data = doc.data() || {};
+        const forceSub = data.force_sub || { is_enabled: false, channels: [] };
+        const channels = Array.isArray(forceSub.channels) ? forceSub.channels : [];
+        
+        // Remove duplicate channel_id if exists
+        const filtered = channels.filter((c: any) => String(c.channel_id) !== String(channel_id));
+        filtered.push(newChannel);
+
+        await docRef.set(
+          {
+            force_sub: {
+              is_enabled: true,
+              channels: filtered,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        const fresh = await docRef.get();
+        const mapped = mapFirestoreGroup(docRef.id, fresh.data());
+        return res.json({ status: 'ok', channels: mapped.fsub_channels });
+      }
+    } catch (err: any) {
+      console.error(`[API POST /groups/${id}/fsub] Firestore error:`, err.message);
+    }
+  }
+
+  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
+  if (!group) {
+    return res.status(404).json({ error: 'Guruh topilmadi' });
+  }
+
   group.fsub_channels.push(newChannel);
-  res.json({ status: 'ok', channels: group.fsub_channels });
+  return res.json({ status: 'ok', channels: group.fsub_channels });
 });
 
-app.delete('/api/groups/:id/fsub/:channelId', (req: Request, res: Response) => {
+app.delete('/api/groups/:id/fsub/:channelId', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
 
-  const { id, channelId } = req.params;
-  const group = groups.find((g) => g._id === id || String(g.group_id) === id);
+  const id = String(req.params.id);
+  const channelId = String(req.params.channelId);
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      let docRef = db.collection('groups').doc(id);
+      let doc = await docRef.get();
+
+      if (!doc.exists) {
+        const numId = Number(id);
+        if (!isNaN(numId)) {
+          const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
+          if (!query.empty) {
+            docRef = query.docs[0].ref;
+            doc = query.docs[0];
+          }
+        }
+      }
+
+      if (doc.exists) {
+        const data = doc.data() || {};
+        const forceSub = data.force_sub || { is_enabled: false, channels: [] };
+        const channels = Array.isArray(forceSub.channels) ? forceSub.channels : [];
+        const filtered = channels.filter(
+          (c: any) => String(c.channel_id) !== channelId && c.username !== channelId
+        );
+
+        await docRef.set(
+          {
+            force_sub: {
+              ...forceSub,
+              channels: filtered,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        const fresh = await docRef.get();
+        const mapped = mapFirestoreGroup(docRef.id, fresh.data());
+        return res.json({ status: 'ok', channels: mapped.fsub_channels });
+      }
+    } catch (err: any) {
+      console.error(`[API DELETE /groups/${id}/fsub] Firestore error:`, err.message);
+    }
+  }
+
+  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
   if (!group) {
     return res.status(404).json({ error: 'Guruh topilmadi' });
   }
@@ -560,20 +836,46 @@ app.delete('/api/groups/:id/fsub/:channelId', (req: Request, res: Response) => {
     (c) => String(c.channel_id) !== channelId && c.username !== channelId
   );
 
-  res.json({ status: 'ok', channels: group.fsub_channels });
+  return res.json({ status: 'ok', channels: group.fsub_channels });
 });
 
 // --------------------------------------------------------------------------
-// Moderation & Warnings
+// Moderation & Warnings (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/moderation', (req: Request, res: Response) => {
+app.get('/api/moderation', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
-  res.json({ logs: moderationLogs });
+
+  const db = getFirestoreDb();
+  if (db) {
+    try {
+      const snapshot = await db.collection('moderation_logs').limit(100).get();
+      if (!snapshot.empty) {
+        const logs = snapshot.docs.map((doc: any) => {
+          const d = doc.data();
+          return {
+            id: doc.id,
+            group_id: Number(d.group_id || 0),
+            group_title: d.group_title || 'Guruh',
+            user_id: Number(d.user_id || 0),
+            username: d.username || undefined,
+            action: d.action || 'warn',
+            reason: d.reason || '',
+            timestamp: d.timestamp || d.created_at || new Date().toISOString(),
+          };
+        });
+        return res.json({ logs });
+      }
+    } catch (err: any) {
+      console.error('[API /moderation] Firestore query error:', err.message);
+    }
+  }
+
+  return res.json({ logs: memoryModerationLogs });
 });
 
-app.post('/api/moderation/clearwarns', (req: Request, res: Response) => {
+app.post('/api/moderation/clearwarns', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -584,40 +886,116 @@ app.post('/api/moderation/clearwarns', (req: Request, res: Response) => {
   }
 
   const numId = Number(user_id);
-  const user = users.find((u) => u.user_id === numId);
+  const nowStr = new Date().toISOString();
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      const userRef = db.collection('users').doc(String(numId));
+      await userRef.set(
+        {
+          warnings_count: 0,
+          is_muted: false,
+          updated_at: nowStr,
+        },
+        { merge: true }
+      );
+
+      // Log moderation event
+      await db.collection('moderation_logs').add({
+        group_id: 0,
+        group_title: 'Admin Panel',
+        user_id: numId,
+        username: `id_${numId}`,
+        action: 'clear_warns',
+        reason: 'Admin tomonidan barcha ogohlantirishlar tozalandi',
+        timestamp: nowStr,
+      });
+
+      return res.json({ status: 'ok', message: `Foydalanuvchi ${numId} ogohlantirishlari olib tashlandi` });
+    } catch (err: any) {
+      console.error('[API /moderation/clearwarns] Firestore error:', err.message);
+    }
+  }
+
+  const user = memoryUsers.find((u) => u.user_id === numId);
   if (user) {
     user.warnings_count = 0;
     user.is_muted = false;
   }
 
-  moderationLogs.unshift({
+  memoryModerationLogs.unshift({
     id: `mod_${Date.now()}`,
-    group_id: -1001928472910,
-    group_title: "O'zbek Dasturchilari Jamiyati",
+    group_id: 0,
+    group_title: 'Admin Panel',
     user_id: numId,
     username: user?.username || `id_${numId}`,
     action: 'clear_warns',
     reason: 'Admin tomonidan barcha ogohlantirishlar tozalandi',
-    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    timestamp: nowStr.replace('T', ' ').substring(0, 19),
   });
 
-  res.json({ status: 'ok', message: `Foydalanuvchi ${numId} ogohlantirishlari olib tashlandi` });
+  return res.json({ status: 'ok', message: `Foydalanuvchi ${numId} ogohlantirishlari olib tashlandi` });
 });
 
 // --------------------------------------------------------------------------
-// Statistics
+// Statistics (Real Firestore aggregates)
 // --------------------------------------------------------------------------
-app.get('/api/stats', (req: Request, res: Response) => {
+app.get('/api/stats', async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
 
   const uptime = Math.floor((Date.now() - startTime) / 1000);
-  res.json({
-    ...stats,
-    total_users: users.length,
-    total_groups: groups.length,
-    active_guard_groups: groups.filter((g) => g.guard.enabled).length,
+  const db = getFirestoreDb();
+
+  if (db) {
+    try {
+      const [groupsSnap, usersSnap] = await Promise.all([
+        db.collection('groups').get(),
+        db.collection('users').get(),
+      ]);
+
+      const groups = groupsSnap.docs.map((d: any) => d.data());
+      const totalGroups = groupsSnap.size;
+      const activeGuardGroups = groups.filter((g: any) => g.is_active !== false).length;
+      const totalUsers = usersSnap.size;
+
+      // Check daily_stats for today
+      const today = new Date().toISOString().substring(0, 10);
+      let sData: any = {};
+      try {
+        const statsDoc = await db.collection('daily_stats').doc(today).get();
+        if (statsDoc.exists) {
+          sData = statsDoc.data() || {};
+        }
+      } catch (e) {
+        // Daily stats doc not yet created today
+      }
+
+      return res.json({
+        total_users: totalUsers,
+        total_groups: totalGroups,
+        active_guard_groups: activeGuardGroups,
+        messages_scanned: Number(sData.messages_scanned || sData.total_messages || 0),
+        spam_blocked: Number(sData.spam_blocked || 0),
+        links_deleted: Number(sData.links_deleted || 0),
+        warnings_issued: Number(sData.warnings_issued || 0),
+        uptime_seconds: uptime,
+      });
+    } catch (err: any) {
+      console.error('[API /stats] Firestore error:', err.message);
+    }
+  }
+
+  return res.json({
+    total_users: memoryUsers.length,
+    total_groups: memoryGroups.length,
+    active_guard_groups: memoryGroups.filter((g) => g.guard.enabled).length,
+    messages_scanned: 0,
+    spam_blocked: 0,
+    links_deleted: 0,
+    warnings_issued: 0,
     uptime_seconds: uptime,
   });
 });
@@ -625,15 +1003,45 @@ app.get('/api/stats', (req: Request, res: Response) => {
 // --------------------------------------------------------------------------
 // Interactive Bot Message Simulation (Live Guard Tester)
 // --------------------------------------------------------------------------
-app.post('/api/bot/simulate', (req: Request, res: Response) => {
+app.post('/api/bot/simulate', async (req: Request, res: Response) => {
   const { group_id, user_id, message_text, username } = req.body;
   if (!message_text) {
     return res.status(400).json({ error: 'message_text kiritilishi kerak' });
   }
 
-  const targetGroup = groups.find((g) => String(g.group_id) === String(group_id)) || groups[0];
-  const guard = targetGroup.guard;
-  stats.messages_scanned += 1;
+  const db = getFirestoreDb();
+  let targetGroup: StoredGroup | undefined;
+
+  if (db && group_id) {
+    try {
+      const docRef = db.collection('groups').doc(String(group_id));
+      const doc = await docRef.get();
+      if (doc.exists) {
+        targetGroup = mapFirestoreGroup(doc.id, doc.data());
+      }
+    } catch (e) {
+      // Ignored
+    }
+  }
+
+  if (!targetGroup) {
+    targetGroup = memoryGroups.find((g) => String(g.group_id) === String(group_id)) || memoryGroups[0];
+  }
+
+  const guard = targetGroup?.guard || {
+    enabled: true,
+    anti_spam: true,
+    anti_flood: true,
+    anti_link: true,
+    anti_ads: true,
+    anti_repeat: true,
+    bad_words: true,
+    new_member_protection: true,
+    flood_limit: 5,
+    flood_window: 5,
+    mute_duration: 300,
+    bad_words_list: ['ahmoq', 'scam', 'kazino', '1xbet', 'reklama'],
+  };
 
   let triggered = false;
   let actionTaken: 'none' | 'delete' | 'warn' | 'mute' | 'ban' = 'none';
@@ -647,7 +1055,6 @@ app.post('/api/bot/simulate', (req: Request, res: Response) => {
     triggered = true;
     actionTaken = 'delete';
     reason = "Anti-Link: Xabarda ruxsat berilmagan havola (link) aniqlandi";
-    stats.links_deleted += 1;
   }
 
   // 2. Bad Words
@@ -657,7 +1064,6 @@ app.post('/api/bot/simulate', (req: Request, res: Response) => {
       triggered = true;
       actionTaken = 'warn';
       reason = `Bad Words: Taqiqlangan so'z ('${matchedWord}') aniqlandi`;
-      stats.warnings_issued += 1;
     }
   }
 
@@ -668,7 +1074,6 @@ app.post('/api/bot/simulate', (req: Request, res: Response) => {
       triggered = true;
       actionTaken = 'delete';
       reason = "Anti-Ads: Tijorat reklamasi yoki qimor xabari aniqlandi";
-      stats.spam_blocked += 1;
     }
   }
 
@@ -677,42 +1082,15 @@ app.post('/api/bot/simulate', (req: Request, res: Response) => {
     triggered = true;
     actionTaken = 'warn';
     reason = "Anti-Spam: Hadisdan tashqari uzun matn (spam)";
-    stats.spam_blocked += 1;
   }
 
-  if (triggered) {
-    const numId = Number(user_id || 729104882);
-    const user = users.find((u) => u.user_id === numId);
-    if (user) {
-      if (actionTaken === 'warn') {
-        user.warnings_count = (user.warnings_count || 0) + 1;
-        if (user.warnings_count >= 3) {
-          user.is_muted = true;
-          actionTaken = 'mute';
-          reason += ' -> 3/3 ogohlantirish, 5 daqiqa mute!';
-        }
-      }
-    }
-
-    moderationLogs.unshift({
-      id: `mod_${Date.now()}`,
-      group_id: targetGroup.group_id,
-      group_title: targetGroup.title,
-      user_id: numId,
-      username: username || user?.username || 'tester',
-      action: actionTaken === 'none' ? 'warn' : actionTaken,
-      reason,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    });
-  }
-
-  res.json({
+  return res.json({
     allowed: !triggered,
     triggered,
     action: actionTaken,
     reason: reason || "Xabar tekshiruvdan muvaffaqiyatli o'tdi",
     guard_active: guard.enabled,
-    group: targetGroup.title,
+    group: targetGroup ? targetGroup.title : 'Standart guruh',
   });
 });
 
@@ -727,8 +1105,8 @@ app.post(['/webhook', '/api/bot/webhook'], (req: Request, res: Response) => {
     const chat = update.message.chat || {};
 
     // Auto-record user if new
-    if (from.id && !users.find((u) => u.user_id === from.id)) {
-      users.unshift({
+    if (from.id && !memoryUsers.find((u: StoredUser) => u.user_id === from.id)) {
+      memoryUsers.unshift({
         _id: `usr_${from.id}`,
         user_id: from.id,
         username: from.username,
@@ -740,7 +1118,6 @@ app.post(['/webhook', '/api/bot/webhook'], (req: Request, res: Response) => {
         is_muted: false,
         language_code: from.language_code || 'uz',
       });
-      stats.total_users = users.length;
     }
   }
 
