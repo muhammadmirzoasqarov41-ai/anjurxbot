@@ -1,45 +1,36 @@
-# Secrets
+# Environment and secrets
 .env
-!.env.example
-*.json
-
-# Firebase credentials (local JSON files)
-credentials/
-!credentials/.gitkeep
-firebase-credentials/
-service-account*.json
+*.env
+serviceAccountKey.json
+firebase-credentials.json
+*.pem
+*.key
 
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
 *.so
-
-# Virtual environments
-.venv/
-.venv*/
-venv/
+.Python
 env/
+venv/
 ENV/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Editors / IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS artefacts
-.DS_Store
-Thumbs.db
-
-# Distribution / packaging
-*.egg-info/
+# Node / Web
+node_modules/
 dist/
-build/
+dist-ssr/
+*.local
 
 # Logs
 *.log
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+logs/
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/

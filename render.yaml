@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: anjurxbot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.web_service
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: PORT
+        value: 10000
+      - key: BOT_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: TIMEZONE
+        value: Asia/Tashkent

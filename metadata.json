@@ -1,0 +1,8 @@
+{
+  "name": "AnjurXBot Admin",
+  "description": "Telegram group protection, moderation bot, and web administration panel",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
