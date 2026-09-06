@@ -50,53 +50,167 @@ class PermissionService:
         bot: Bot,
         group_id: int,
         user_id: int,
-        sender_chat_id: Optional[int] = None
+        username: Optional[str] = None,
+        sender_chat_id: Optional[int] = None,
+        sender_chat_username: Optional[str] = None,
+        chat: Optional[Any] = None,
     ) -> str:
         """
         Returns the exact role of the user: 'OWNER', 'ADMIN', or 'MEMBER'.
-        Uses Telegram user_id as the primary identifier.
+        Supports Telegram user_id, username, anonymous channel senders, and linked channels.
         """
-        if config.is_admin(user_id):
-            return "ADMIN"
+        # 1. Global superadmin check
+        if config.is_admin(user_id=user_id, username=username):
+            return "OWNER"
 
-        # Telegram supergroup anonymous admin check
+        if sender_chat_id and config.is_admin(user_id=sender_chat_id, username=sender_chat_username):
+            return "OWNER"
+
+        # 2. Telegram supergroup anonymous admin check (posting as the group itself)
         if sender_chat_id and sender_chat_id == group_id:
             return "ADMIN"
 
-        now = time.time()
-        key = (group_id, user_id)
-        if key in self._role_cache:
-            role, cached_time = self._role_cache[key]
-            if now - cached_time < config.cache_ttl_member_status:
-                return role
+        # 3. Supergroup linked channel check (e.g. channel linked to discussion group)
+        if sender_chat_id:
+            linked_id = getattr(chat, "linked_chat_id", None) if chat else None
+            if not linked_id:
+                try:
+                    from app.services.group_service import group_service
+                    cached = group_service._cache.get(group_id)
+                    if cached:
+                        linked_id = cached[0].get("linked_chat_id")
+                except Exception:
+                    pass
 
+            if not linked_id:
+                try:
+                    full_chat = await bot.get_chat(chat_id=group_id)
+                    linked_id = getattr(full_chat, "linked_chat_id", None)
+                    if linked_id:
+                        try:
+                            from app.services.group_service import group_service
+                            cached = group_service._cache.get(group_id)
+                            if cached:
+                                cached[0]["linked_chat_id"] = linked_id
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.debug(f"Could not get linked_chat_id for group {group_id}: {e}")
+
+            if linked_id and linked_id == sender_chat_id:
+                return "OWNER"
+
+        # 4. Check cached/database group configuration
         try:
-            member = await bot.get_chat_member(chat_id=group_id, user_id=user_id)
-            role = self.normalize_role(member.status)
-            self._role_cache[key] = (role, now)
-            return role
-        except Exception as e:
-            logger.error(
-                f"error_type={type(e).__name__} action=get_user_role group_id={group_id} user_id={user_id} error={e}"
-            )
-            return "MEMBER"
+            from app.services.group_service import group_service
+            cached = group_service._cache.get(group_id)
+            if cached:
+                g_data = cached[0]
+                if user_id and g_data.get("owner_id") == user_id:
+                    return "OWNER"
+                if user_id and user_id in g_data.get("admin_ids", []):
+                    return "ADMIN"
+                if username and g_data.get("owner") and g_data["owner"].get("username"):
+                    if str(g_data["owner"]["username"]).lower() == username.lower():
+                        return "OWNER"
+                if username and g_data.get("admins"):
+                    for a in g_data["admins"]:
+                        if str(a.get("username", "")).lower() == username.lower():
+                            return "ADMIN"
+                if sender_chat_id and g_data.get("owner_id") == sender_chat_id:
+                    return "OWNER"
+                if sender_chat_id and sender_chat_id in g_data.get("admin_ids", []):
+                    return "ADMIN"
+        except Exception:
+            pass
+
+        # 5. Direct Telegram member status check for real users
+        # 136817688 is Channel_Bot, 1087968824 is GroupAnonymousBot, 777000 is Telegram service
+        if user_id and user_id not in (136817688, 1087968824, 777000, 0):
+            now = time.time()
+            key = (group_id, user_id)
+            if key in self._role_cache:
+                role, cached_time = self._role_cache[key]
+                if now - cached_time < config.cache_ttl_member_status and role != "MEMBER":
+                    return role
+
+            try:
+                member = await bot.get_chat_member(chat_id=group_id, user_id=user_id)
+                role = self.normalize_role(member.status)
+                self._role_cache[key] = (role, now)
+                if role in ("OWNER", "ADMIN"):
+                    return role
+            except Exception as e:
+                logger.error(
+                    f"error_type={type(e).__name__} action=get_user_role group_id={group_id} user_id={user_id} error={e}"
+                )
+
+        # 6. Fallback: sync administrators list once to ensure fresh state
+        try:
+            owner_id, owner_dict, admins_list, admin_ids = await self.sync_group_administrators(bot, group_id)
+            if user_id and owner_id == user_id:
+                return "OWNER"
+            if user_id and user_id in admin_ids:
+                return "ADMIN"
+            if username:
+                if owner_dict and str(owner_dict.get("username", "")).lower() == username.lower():
+                    return "OWNER"
+                for adm in admins_list:
+                    if str(adm.get("username", "")).lower() == username.lower():
+                        return "ADMIN"
+            if sender_chat_id and owner_id == sender_chat_id:
+                return "OWNER"
+            if sender_chat_id and sender_chat_id in admin_ids:
+                return "ADMIN"
+        except Exception:
+            pass
+
+        return "MEMBER"
 
     async def is_user_admin(
         self,
         bot: Bot,
         group_id: int,
         user_id: int,
-        sender_chat_id: Optional[int] = None
+        username: Optional[str] = None,
+        sender_chat_id: Optional[int] = None,
+        sender_chat_username: Optional[str] = None,
+        chat: Optional[Any] = None,
     ) -> bool:
-        """Check if a user is an administrator or owner of the given group."""
-        role = await self.get_user_role(bot, group_id, user_id, sender_chat_id=sender_chat_id)
+        """Check if a user or sender is an administrator or owner of the given group."""
+        role = await self.get_user_role(
+            bot,
+            group_id,
+            user_id,
+            username=username,
+            sender_chat_id=sender_chat_id,
+            sender_chat_username=sender_chat_username,
+            chat=chat
+        )
         return role in ("OWNER", "ADMIN")
 
-    async def is_user_owner(self, bot: Bot, group_id: int, user_id: int) -> bool:
-        """Check if a user is the primary creator/owner of the given group."""
-        if config.is_admin(user_id):
+    async def is_user_owner(
+        self,
+        bot: Bot,
+        group_id: int,
+        user_id: int,
+        username: Optional[str] = None,
+        sender_chat_id: Optional[int] = None,
+        sender_chat_username: Optional[str] = None,
+        chat: Optional[Any] = None,
+    ) -> bool:
+        """Check if a user or sender is the primary creator/owner of the given group."""
+        if config.is_admin(user_id=user_id, username=username):
             return True
-        role = await self.get_user_role(bot, group_id, user_id)
+        role = await self.get_user_role(
+            bot,
+            group_id,
+            user_id,
+            username=username,
+            sender_chat_id=sender_chat_id,
+            sender_chat_username=sender_chat_username,
+            chat=chat
+        )
         return role == "OWNER"
 
     async def sync_group_administrators(

@@ -133,9 +133,34 @@ class GroupService:
             if owner_id:
                 group_doc["owner_id"] = owner_id
                 group_doc["owner"] = owner_data
+            elif not group_doc.get("owner_id") and config.admin_ids:
+                group_doc["owner_id"] = config.admin_ids[0]
+                group_doc["owner"] = {
+                    "user_id": config.admin_ids[0],
+                    "username": config.admin_usernames[0] if config.admin_usernames else "admin",
+                    "first_name": "Super Admin",
+                    "last_name": "",
+                    "is_bot": False
+                }
+
             if admins_list:
                 group_doc["admins"] = admins_list
                 group_doc["admin_ids"] = admin_ids
+
+            # Fetch full chat info from Telegram API for linked channel and exact title
+            try:
+                full_chat = await bot.get_chat(chat_id=group_id)
+                linked_id = getattr(full_chat, "linked_chat_id", None)
+                if linked_id:
+                    group_doc["linked_chat_id"] = linked_id
+                if getattr(full_chat, "title", None):
+                    group_doc["title"] = full_chat.title
+                if getattr(full_chat, "username", None):
+                    group_doc["username"] = full_chat.username
+                if getattr(full_chat, "type", None):
+                    group_doc["type"] = full_chat.type
+            except Exception as ce:
+                logger.debug(f"get_chat error for group {group_id}: {ce}")
 
             # Check bot's own status
             try:
@@ -160,6 +185,9 @@ class GroupService:
                     group_doc["username"] = chat.username
                 if chat.type:
                     group_doc["type"] = chat.type
+                linked_id = getattr(chat, "linked_chat_id", None)
+                if linked_id:
+                    group_doc["linked_chat_id"] = linked_id
 
             return True
         except Exception as e:

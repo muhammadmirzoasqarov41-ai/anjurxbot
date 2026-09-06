@@ -23,6 +23,7 @@ class Config:
     bot_token: str = field(default_factory=lambda: os.getenv("BOT_TOKEN", "").strip())
     bot_username: str = field(default_factory=lambda: os.getenv("BOT_USERNAME", "").strip())
     admin_ids: List[int] = field(default_factory=list)
+    admin_usernames: List[str] = field(default_factory=list)
     firebase_service_account: Optional[dict] = None
     firebase_project_id: str = field(
         default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", "anjurxbot").strip() or "anjurxbot"
@@ -42,15 +43,29 @@ class Config:
     )
 
     def __post_init__(self):
-        # Parse Admin IDs
+        # Parse Admin IDs (support both ADMIN_IDS and ADMIN_ID)
         raw_admin_ids = os.getenv("ADMIN_IDS", "").strip()
-        if raw_admin_ids:
-            parsed = []
-            for item in raw_admin_ids.split(","):
-                clean = item.strip()
-                if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
-                    parsed.append(int(clean))
-            self.admin_ids = parsed
+        raw_single_admin = os.getenv("ADMIN_ID", "").strip()
+        parsed_ids = []
+        for val in [raw_admin_ids, raw_single_admin]:
+            if val:
+                for item in val.split(","):
+                    clean = item.strip()
+                    if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
+                        parsed_ids.append(int(clean))
+        self.admin_ids = list(dict.fromkeys(parsed_ids))
+
+        # Parse Admin Usernames (support both ADMIN_USERNAMES and ADMIN_USERNAME)
+        raw_admin_usernames = os.getenv("ADMIN_USERNAMES", "").strip()
+        raw_single_username = os.getenv("ADMIN_USERNAME", "").strip()
+        parsed_un = []
+        for val in [raw_admin_usernames, raw_single_username]:
+            if val:
+                for item in val.split(","):
+                    clean = item.strip().lstrip("@").lower()
+                    if clean:
+                        parsed_un.append(clean)
+        self.admin_usernames = list(dict.fromkeys(parsed_un))
 
         # Parse Firebase Service Account
         raw_sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
@@ -116,8 +131,14 @@ class Config:
         if self.firebase_service_account and self.firebase_service_account.get("project_id"):
             self.firebase_project_id = self.firebase_service_account["project_id"]
 
-    def is_admin(self, user_id: int) -> bool:
-        return user_id in self.admin_ids
+    def is_admin(self, user_id: Optional[int] = None, username: Optional[str] = None) -> bool:
+        if user_id is not None and user_id in self.admin_ids:
+            return True
+        if username:
+            clean_un = username.strip().lstrip("@").lower()
+            if clean_un and clean_un in self.admin_usernames:
+                return True
+        return False
 
     def has_token(self) -> bool:
         return bool(self.bot_token and len(self.bot_token) > 10)

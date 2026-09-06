@@ -17,10 +17,18 @@ async def verify_admin_callback(
     Ensures that the user pressing the button is an authorized group admin or bot superadmin.
     """
     user_id = callback.from_user.id
-    if config.is_admin(user_id):
+    username = callback.from_user.username
+    if config.is_admin(user_id=user_id, username=username):
         return True
 
-    is_admin = await permission_service.is_user_admin(bot, group_id, user_id)
+    chat = callback.message.chat if callback.message else None
+    is_admin = await permission_service.is_user_admin(
+        bot,
+        group_id,
+        user_id,
+        username=username,
+        chat=chat
+    )
     if not is_admin:
         await callback.answer("❌ Bu amal faqat guruh adminlari uchun ruxsat etilgan!", show_alert=True)
         return False

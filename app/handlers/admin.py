@@ -28,7 +28,9 @@ async def cmd_panel(message: Message, bot: Bot):
 
     chat_id = message.chat.id
     user_id = message.from_user.id if message.from_user else 0
+    username = message.from_user.username if message.from_user else None
     sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
 
     # Ensure group is registered and admins are populated
     await group_service.get_or_register_group(
@@ -38,7 +40,15 @@ async def cmd_panel(message: Message, bot: Bot):
         bot=bot
     )
 
-    is_admin = await permission_service.is_user_admin(bot, chat_id, user_id, sender_chat_id=sender_chat_id)
+    is_admin = await permission_service.is_user_admin(
+        bot,
+        chat_id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat
+    )
     if not is_admin:
         await message.reply("❌ Bu panel faqat guruh administratorlari uchun ochiq.")
         return
@@ -223,8 +233,18 @@ async def cmd_warn(message: Message, bot: Bot):
         return
 
     sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
     user_id = message.from_user.id if message.from_user else 0
-    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
+    username = message.from_user.username if message.from_user else None
+    if not await permission_service.is_user_admin(
+        bot,
+        message.chat.id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat
+    ):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 
@@ -237,7 +257,7 @@ async def cmd_warn(message: Message, bot: Bot):
         await message.reply("Botlarga ogohlantirish berilmaydi.")
         return
 
-    if await permission_service.is_user_admin(bot, message.chat.id, target.id):
+    if await permission_service.is_user_admin(bot, message.chat.id, target.id, username=target.username, chat=message.chat):
         await message.reply("Adminlarga ogohlantirish berib bo'lmaydi.")
         return
 
@@ -281,8 +301,18 @@ async def cmd_mute(message: Message, bot: Bot):
         return
 
     sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
     user_id = message.from_user.id if message.from_user else 0
-    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
+    username = message.from_user.username if message.from_user else None
+    if not await permission_service.is_user_admin(
+        bot,
+        message.chat.id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat
+    ):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 
@@ -291,7 +321,7 @@ async def cmd_mute(message: Message, bot: Bot):
         return
 
     target = message.reply_to_message.from_user
-    if await permission_service.is_user_admin(bot, message.chat.id, target.id):
+    if await permission_service.is_user_admin(bot, message.chat.id, target.id, username=target.username, chat=message.chat):
         await message.reply("Adminlarni mute qilib bo'lmaydi.")
         return
 
@@ -321,8 +351,18 @@ async def cmd_unmute(message: Message, bot: Bot):
         return
 
     sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
     user_id = message.from_user.id if message.from_user else 0
-    if not await permission_service.is_user_admin(bot, message.chat.id, user_id, sender_chat_id=sender_chat_id):
+    username = message.from_user.username if message.from_user else None
+    if not await permission_service.is_user_admin(
+        bot,
+        message.chat.id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat
+    ):
         await message.reply("❌ Bu amal faqat guruh adminlari uchun.")
         return
 

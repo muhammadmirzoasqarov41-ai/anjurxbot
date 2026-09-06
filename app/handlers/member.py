@@ -3,6 +3,7 @@ Member events handler.
 Handles new chat members, user status changes, bot addition/removal and promotion in groups.
 """
 import logging
+import time
 from aiogram import Router, Bot, F
 from aiogram.types import Message, ChatMemberUpdated
 
@@ -37,6 +38,10 @@ async def on_bot_status_changed(event: ChatMemberUpdated, bot: Bot):
             bot=bot,
             force_refresh=True
         )
+        if event.from_user and not event.from_user.is_bot:
+            permission_service._role_cache[(chat.id, event.from_user.id)] = ("ADMIN", time.time())
+            if event.from_user.id not in group_doc.get("admin_ids", []):
+                group_doc.setdefault("admin_ids", []).append(event.from_user.id)
         try:
             await bot.send_message(
                 chat_id=chat.id,
