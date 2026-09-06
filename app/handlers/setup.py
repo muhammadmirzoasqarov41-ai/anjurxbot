@@ -38,6 +38,27 @@ async def cmd_setup(message: Message, bot: Bot):
     )
 
 
+@router.callbackQuery(F.data.startswith("setup:menu:"))
+async def cb_setup_menu(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    keyboard = get_setup_wizard_keyboard(group_id)
+    try:
+        await callback.message.edit_text(
+            "🚀 <b>AnjurXBot Tezkor Sozlash Ustasi:</b>\n\n"
+            "Guruh himoyasini bir marta bosish orqali sozlang:\n\n"
+            "• <b>Standart:</b> Reklama va spamga qarshi asosiy himoya.\n"
+            "• <b>Qat'iy:</b> Barcha filtrlar va so'kinish filtri faol.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
 @router.callbackQuery(F.data.startswith("setup:preset:default:"))
 async def cb_preset_default(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)

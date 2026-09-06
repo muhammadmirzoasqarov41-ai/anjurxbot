@@ -134,25 +134,39 @@ async def run_bot_polling(bot: Bot, dp: Dispatcher):
     if not config.has_token():
         logger.warning(
             "BOT_TOKEN is not configured or is placeholder. "
-            "Polling is disabled. Provide a valid BOT_TOKEN in .env to enable live Telegram polling."
+            "Web health server is ACTIVE in standby mode. "
+            "Provide BOT_TOKEN in Render environment variables to activate live Telegram bot polling."
         )
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            logger.info("Standby loop received cancellation.")
         return
 
     logger.info(f"Connecting to Telegram with bot token: {bot.token[:8]}***")
     health_service.mark_polling_started()
 
     try:
-        # Delete webhook if any was active before polling
-        await bot.delete_webhook(drop_pending_updates=False)
-        logger.info("Starting aiogram polling loop...")
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    except asyncio.CancelledError:
-        logger.info("Bot polling loop received cancellation.")
-    except Exception as e:
-        logger.error(f"Error occurred during bot polling: {e}", exc_info=True)
+        while True:
+            try:
+                # Delete webhook if any was active before polling
+                await bot.delete_webhook(drop_pending_updates=False)
+                logger.info("Starting aiogram polling loop...")
+                await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+                break
+            except asyncio.CancelledError:
+                logger.info("Bot polling loop received cancellation.")
+                break
+            except Exception as e:
+                logger.error(f"Error during bot polling: {e}. Retrying polling in 5 seconds...", exc_info=True)
+                await asyncio.sleep(5)
     finally:
         health_service.mark_polling_stopped()
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
         logger.info("Bot session closed.")
 
 

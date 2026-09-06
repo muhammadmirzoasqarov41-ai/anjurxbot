@@ -86,7 +86,7 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     new_val = not current_val
 
     await group_service.update_guard_setting(group_id, setting_key, new_val)
-    group_settings[setting_key] = new_val
+    guard_settings[setting_key] = new_val
 
     keyboard = get_guard_settings_keyboard(group_id, guard_settings)
     try:
@@ -120,6 +120,48 @@ async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
     await callback.answer(f"Jazo turi o'zgartirildi: {new_punish.upper()}")
+
+
+@router.callbackQuery(F.data.startswith("guard:threshold:"))
+async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    if len(parts) < 4:
+        await callback.answer("Xatolik.")
+        return
+
+    group_id = int(parts[2])
+    target_type = parts[3]
+
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard_settings = group_config.get("guard_settings", {})
+
+    if target_type == "flood":
+        current = int(guard_settings.get("flood_limit", 5))
+        flood_cycle = {3: 5, 5: 7, 7: 10, 10: 3}
+        new_val = flood_cycle.get(current, 5)
+        await group_service.update_guard_setting(group_id, "flood_limit", new_val)
+        guard_settings["flood_limit"] = new_val
+        msg = f"Flood chegarasi: {new_val} ta xabar"
+    elif target_type == "warn":
+        current = int(guard_settings.get("warn_limit", 3))
+        warn_cycle = {2: 3, 3: 5, 5: 2}
+        new_val = warn_cycle.get(current, 3)
+        await group_service.update_guard_setting(group_id, "warn_limit", new_val)
+        guard_settings["warn_limit"] = new_val
+        msg = f"Ogohlantirish chegarasi: {new_val} ta"
+    else:
+        await callback.answer()
+        return
+
+    keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except Exception:
+        pass
+    await callback.answer(msg)
 
 
 @router.callbackQuery(F.data.startswith("guard:words:"))

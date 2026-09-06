@@ -49,6 +49,8 @@ class Config:
 
         # Parse Firebase Service Account
         raw_sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+        file_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "").strip() or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+
         if raw_sa:
             try:
                 if raw_sa.startswith("{") and raw_sa.endswith("}"):
@@ -57,7 +59,20 @@ class Config:
                     with open(raw_sa, "r", encoding="utf-8") as f:
                         self.firebase_service_account = json.load(f)
             except Exception as e:
-                logger.error("error_type=FirebaseConfigError message=Failed to parse service account JSON")
+                logger.error("error_type=FirebaseConfigError message=Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON")
+
+        if not self.firebase_service_account and file_path and os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    self.firebase_service_account = json.load(f)
+            except Exception as e:
+                logger.error(f"error_type=FirebaseConfigError message=Failed to load credentials from file {file_path}")
+
+        # Sanitize private_key if needed (e.g. literal escaped \n from env vars)
+        if self.firebase_service_account and isinstance(self.firebase_service_account.get("private_key"), str):
+            pk = self.firebase_service_account["private_key"]
+            if "\\n" in pk:
+                self.firebase_service_account["private_key"] = pk.replace("\\n", "\n")
 
     def is_admin(self, user_id: int) -> bool:
         return user_id in self.admin_ids

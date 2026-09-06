@@ -116,6 +116,64 @@ async def cb_admin_stats(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
+@router.callbackQuery(F.data.startswith("admin:warns:"))
+async def cb_admin_warns(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    warn_limit = group_config.get("guard_settings", {}).get("warn_limit", 3)
+    punishment = group_config.get("guard_settings", {}).get("punishment", "mute").upper()
+
+    text = (
+        f"⚠️ <b>Ogohlantirishlar tizimi:</b>\n\n"
+        f"• Maksimal limit: <b>{warn_limit}</b> ta\n"
+        f"• Limit to'lgandagi jazo: <b>{punishment}</b>\n\n"
+        f"Foydalanuvchiga ogohlantirish berish uchun uning xabariga reply qilib <code>/warn</code> deb yozing.\n"
+        f"Ogohlantirishlarni bekor qilish uchun <code>/unmute</code> buyrug'idan foydalaning."
+    )
+    await callback.message.reply(text, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callbackQuery(F.data.startswith("global:groups:"))
+async def cb_global_groups(callback: CallbackQuery):
+    if not config.is_admin(callback.from_user.id):
+        await callback.answer("Ruxsat yo'q.", show_alert=True)
+        return
+
+    all_groups = await firebase_service.get_all_groups(limit=50)
+    if not all_groups:
+        await callback.message.reply("Hozircha faol guruhlar mavjud emas.")
+        await callback.answer()
+        return
+
+    lines = ["👥 <b>Ulangan guruhlar:</b>\n"]
+    for idx, g in enumerate(all_groups[:25], 1):
+        title = g.get("title") or "Noma'lum guruh"
+        gid = g.get("group_id") or g.get("_id")
+        lines.append(f"{idx}. <b>{title}</b> (ID: <code>{gid}</code>)")
+
+    await callback.message.reply("\n".join(lines), parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callbackQuery(F.data == "global:broadcast")
+async def cb_global_broadcast(callback: CallbackQuery):
+    if not config.is_admin(callback.from_user.id):
+        await callback.answer("Ruxsat yo'q.", show_alert=True)
+        return
+
+    await callback.message.reply(
+        "📢 <b>Broadcast xabarnoma:</b>\n\n"
+        "Barcha guruhlarga xabar yuborish funksiyasi xavfsizlik maqsadida cheklangan.\n"
+        "Xabar yuborish uchun web boshqaruv paneli yoki bot boshqaruv konsolidan foydalaning.",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
 @router.callbackQuery(F.data.startswith("admin:panel:"))
 async def cb_back_to_panel(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)

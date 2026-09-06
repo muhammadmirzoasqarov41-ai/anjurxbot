@@ -1,9 +1,9 @@
 """
 Start and Help Command Handlers.
 """
-from aiogram import Router, Bot
+from aiogram import Router, Bot, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.firebase import firebase_service
 from app.config import config
@@ -91,3 +91,23 @@ async def cmd_help(message: Message):
         "• /admin — Global statistikalar va tizim holati"
     )
     await message.reply(help_text, parse_mode="HTML")
+
+
+@router.callbackQuery(F.data == "common:help")
+async def cb_help(callback: CallbackQuery):
+    help_text = (
+        "📖 <b>AnjurXBot Buyruqlar Qo'llanmasi:</b>\n\n"
+        "<b>Guruh adminlari uchun:</b>\n"
+        "• /panel — Asosiy boshqaruv paneli\n"
+        "• /guard — Himoya va filtr sozlamalari\n"
+        "• /fsub — Majburiy obuna sozlamalari\n"
+        "• /setup — Tezkor sozlash ustasi\n"
+        "• /warn — Ogohlantirish berish (reply orqali)\n"
+        "• /mute — Ovozni o'chirish (reply orqali)\n"
+        "• /unmute — Cheklovni bekor qilish (reply orqali)\n\n"
+        "<b>Bot boshqaruvchilari uchun:</b>\n"
+        "• /admin — Global statistikalar va tizim holati"
+    )
+    await callback.message.reply(help_text, parse_mode="HTML")
+    await callback.answer()
+

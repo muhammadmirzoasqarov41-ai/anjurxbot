@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.keyboards.common import get_close_button
 
 
-def get_setup_keyboard(group_id: int) -> InlineKeyboardMarkup:
+def get_setup_wizard_keyboard(group_id: int) -> InlineKeyboardMarkup:
     gid = str(group_id)
     keyboard = [
         [
@@ -22,3 +22,7 @@ def get_setup_keyboard(group_id: int) -> InlineKeyboardMarkup:
         ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+# Alias for backward compatibility
+get_setup_keyboard = get_setup_wizard_keyboard
