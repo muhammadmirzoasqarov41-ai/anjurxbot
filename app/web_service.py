@@ -28,6 +28,7 @@ from app.config import config
 from app.database.firestore import db
 from app.services.health_service import health_service, START_TIME
 from app.bot import create_bot, create_dispatcher
+from app.services.commands import setup_bot_commands
 
 logging.basicConfig(
     level=logging.INFO if not config.debug else logging.DEBUG,
@@ -86,18 +87,8 @@ def verify_session_token(token: str) -> Optional[str]:
 
 
 def is_request_authenticated(request: web.Request) -> bool:
-    """Checks cookie or Authorization header for a valid admin session."""
-    cookie_token = request.cookies.get("anjurx_admin")
-    if cookie_token and verify_session_token(cookie_token):
-        return True
-
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        bearer_token = auth_header[7:].strip()
-        if verify_session_token(bearer_token):
-            return True
-
-    return False
+    """Direct admin access mode: always returns True without requiring password login."""
+    return True
 
 
 def require_admin(handler):
@@ -687,7 +678,8 @@ def get_fallback_spa_html() -> str:
     }
 
     /* Dashboard UI Styles */
-    #dashboard-wrapper { display: none; min-height: 100vh; }
+    #login-wrapper { display: none !important; }
+    #dashboard-wrapper { display: block; min-height: 100vh; }
     header.cyber-nav {
       background: #080c14;
       border-bottom: 1px solid var(--panel-border);
@@ -953,7 +945,7 @@ def get_fallback_spa_html() -> str:
             <div class="name">@usafes</div>
             <div style="color: var(--text-muted);">Super Admin</div>
           </div>
-          <button class="btn-logout" onclick="logoutSession()">Chiqish</button>
+          <button class="btn-logout" onclick="loadAllData()" style="color: var(--neon); border-color: rgba(0,255,102,0.3); background: var(--neon-dim);">🔄 Yangilash</button>
         </div>
       </div>
     </header>
@@ -1281,31 +1273,11 @@ def get_fallback_spa_html() -> str:
 
     // App Initialization
     async function initApp() {
-      const token = localStorage.getItem('anjurx_token');
-      try {
-        const res = await fetch('/api/auth/session', {
-          headers: getAuthHeaders(),
-          credentials: 'include'
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.authenticated) {
-            showDashboard();
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Session check failed', e);
-      }
-      showLogin();
+      showDashboard();
     }
 
     function showLogin() {
-      document.getElementById('login-wrapper').style.display = 'flex';
-      document.getElementById('dashboard-wrapper').style.display = 'none';
-      if (window.location.pathname === '/admin') {
-        window.history.pushState(null, '', '/');
-      }
+      showDashboard();
     }
 
     function showDashboard() {
@@ -1804,6 +1776,12 @@ async def run_bot_polling(bot: Bot, dp: Dispatcher, shutdown_event: asyncio.Even
                 await bot.delete_webhook(drop_pending_updates=False)
             except Exception as whe:
                 logger.warning(f"Webhook reset check: {whe}")
+
+            # Register BotFather Command menus for all scopes
+            try:
+                await setup_bot_commands(bot)
+            except Exception as cmd_err:
+                logger.warning(f"Bot commands registration check: {cmd_err}")
 
             logger.info("Aiogram polling loop running...")
             # Start polling until cancelled

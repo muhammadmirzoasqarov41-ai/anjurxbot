@@ -6,12 +6,10 @@ import { GuardView } from './components/GuardView';
 import { ForceSubView } from './components/ForceSubView';
 import { ModerationView } from './components/ModerationView';
 import { SimulatorView } from './components/SimulatorView';
-import { LoginView } from './components/LoginView';
 import { TelegramUser, TelegramGroup, ModerationLog, SystemStats, GuardSettings, ForceSubChannel } from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null); // null = checking
 
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [users, setUsers] = useState<TelegramUser[]>([]);
@@ -25,9 +23,9 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [botStatus, setBotStatus] = useState<string>('running');
 
-  // Check auth and sync state
+  // Directly load dashboard data on initial visit
   useEffect(() => {
-    checkAuth();
+    loadAllData();
   }, []);
 
   const getHeaders = (customHeaders: Record<string, string> = {}) => {
@@ -40,26 +38,6 @@ export default function App() {
       headers['Authorization'] = `Bearer ${token}`;
     }
     return headers;
-  };
-
-  const checkAuth = async () => {
-    try {
-      const res = await fetch('/api/auth/session', {
-        headers: getHeaders(),
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAuthenticated(data.authenticated);
-        if (data.authenticated) {
-          loadAllData();
-        }
-      } else {
-        setAuthenticated(false);
-      }
-    } catch (e) {
-      setAuthenticated(false);
-    }
   };
 
   const loadAllData = async () => {
@@ -142,27 +120,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-      });
-    } catch (e) {
-      console.error(e);
-    } finally {
-      localStorage.removeItem('anjurx_token');
-      localStorage.removeItem('anjurx_user');
-      setAuthenticated(false);
-      window.history.pushState(null, '', '/');
-    }
-  };
-
-  const handleLoginSuccess = () => {
-    setAuthenticated(true);
-    window.history.pushState(null, '', '/admin');
-    loadAllData();
+  const handleRefresh = async () => {
+    await loadAllData();
   };
 
   const handleClearWarns = async (userId: number) => {
@@ -265,33 +224,14 @@ export default function App() {
     }
   };
 
-  // Checking initial auth state spinner
-  if (authenticated === null) {
-    return (
-      <div className="min-h-screen bg-[#05070a] flex items-center justify-center font-mono-cyber">
-        <div className="text-center">
-          <div className="w-10 h-10 border-2 border-[#00ff66] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <div className="text-xs text-[#00ff66] tracking-wider uppercase font-semibold">
-            Connecting Security Gateway...
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Not authenticated: Render Fullscreen Cyber Admin Login View
-  if (!authenticated) {
-    return <LoginView onLoginSuccess={handleLoginSuccess} />;
-  }
-
-  // Authenticated: Render Cyber Control Center Dashboard
+  // Directly render Cyber Control Center Dashboard
   return (
     <div className="min-h-screen bg-cyber-grid text-slate-100 flex flex-col font-sans">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onLogout={handleLogout}
-        authenticated={authenticated}
+        onLogout={handleRefresh}
+        authenticated={true}
         botStatus={botStatus}
       />
 

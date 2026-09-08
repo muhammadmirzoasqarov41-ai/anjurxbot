@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 def _status_icon(value: bool) -> str:
-    return "✅ Yoqilgan" if value else "❌ O'chirilgan"
+    return "🟢 Yoqilgan" if value else "🔴 O'chirilgan"
 
 
 def get_group_settings_keyboard(group_id: int) -> InlineKeyboardMarkup:

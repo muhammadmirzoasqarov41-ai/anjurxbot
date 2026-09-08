@@ -31,6 +31,7 @@ from app.keyboards.admin import (
     get_back_to_settings_keyboard,
 )
 from app.keyboards.fsub import get_force_sub_admin_keyboard
+from app.keyboards.help import get_private_group_redirect_keyboard
 from app.handlers.admin_helpers import verify_admin_callback, extract_group_id_from_callback
 from app.config import config
 
@@ -50,20 +51,16 @@ async def cmd_settings(message: Message, bot: Bot):
     user_id = message.from_user.id if message.from_user else 0
     username = message.from_user.username if message.from_user else None
 
+    # Contextual guidance in private chat (Requirement #12)
     if message.chat.type not in ("group", "supergroup"):
-        if config.is_super_admin(user_id):
-            await message.reply(
-                "⚙️ <b>Guruh Sozlamalari:</b>\n\n"
-                "Guruh sozlamalarini boshqarish uchun ushbu buyruqni guruh ichida yuboring.\n"
-                "Global bot boshqaruvi va umumiy statistika uchun: /admin buyrug'idan foydalaning.",
-                parse_mode="HTML"
-            )
-        else:
-            await message.reply(
-                "❌ Bu buyruq faqat guruhlarda ishlaydi.\n"
-                "Botni guruhingizga qo'shing va administrator huquqini bering.",
-                parse_mode="HTML"
-            )
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username or config.bot_username or "AnjurXBot"
+        await message.reply(
+            "⚙️ <b>/settings faqat guruh ichida ishlaydi.</b>\n\n"
+            "Botni guruhga qo‘shing va guruhda <code>/settings</code> buyrug‘ini yuboring.",
+            reply_markup=get_private_group_redirect_keyboard(bot_username),
+            parse_mode="HTML"
+        )
         return
 
     chat_id = message.chat.id
@@ -90,7 +87,8 @@ async def cmd_settings(message: Message, bot: Bot):
     )
     if not is_admin:
         await message.reply(
-            "⛔ Bu bo'lim faqat guruh egasi va administratorlari uchun.",
+            "⛔ <b>Kirish taqiqlangan!</b>\n"
+            "Bu bo‘lim faqat guruh egasi va administratorlari uchun mo‘ljallangan.",
             parse_mode="HTML"
         )
         return
@@ -109,10 +107,109 @@ async def cmd_settings(message: Message, bot: Bot):
     await message.reply(
         f"⚙️ <b>GURUH SOZLAMALARI:</b> {title}\n"
         f"ID: <code>{chat_id}</code>{warning_note}\n\n"
-        f"Boshqarish uchun quyidagi bo'limlardan birini tanlang:",
+        f"Boshqarish uchun quyidagi bo‘limlardan birini tanlang:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+# =====================================================================
+# 1.1. GROUP PROTECTION STATUS (/status)
+# =====================================================================
+
+@router.message(Command("status"))
+async def cmd_status(message: Message, bot: Bot):
+    """
+    Displays current group guard status (/status).
+    Contextual in private chat, detailed in group chat.
+    """
+    if message.chat.type not in ("group", "supergroup"):
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username or config.bot_username or "AnjurXBot"
+        await message.reply(
+            "📊 <b>/status faqat guruh ichida ishlaydi.</b>\n\n"
+            "Botni guruhingizga qo‘shing va guruh ichida <code>/status</code> buyrug‘ini yuboring.",
+            reply_markup=get_private_group_redirect_keyboard(bot_username),
+            parse_mode="HTML"
+        )
+        return
+
+    chat_id = message.chat.id
+    user_id = message.from_user.id if message.from_user else 0
+    username = message.from_user.username if message.from_user else None
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
+
+    group_config = await group_service.get_or_register_group(
+        chat_id,
+        title=message.chat.title or "",
+        chat=message.chat,
+        bot=bot
+    )
+
+    guard = group_config.get("guard_settings", {})
+    fsub = group_config.get("force_sub", {})
+
+    def _st(val: bool) -> str:
+        return "🟢 Yoqilgan" if val else "🔴 O‘chirilgan"
+
+    anti_link = _st(bool(guard.get("anti_link", True)))
+    anti_spam = _st(bool(guard.get("anti_spam", True)))
+    anti_ads = _st(bool(guard.get("anti_ads", True)))
+    anti_flood = _st(bool(guard.get("anti_flood", True)))
+    anti_repeat = _st(bool(guard.get("anti_repeat", True)))
+    bad_words = _st(bool(guard.get("bad_words_filter", True)))
+    srv_msg = _st(bool(guard.get("delete_service_messages", True)))
+
+    flood_lim = guard.get("flood_limit", 5)
+    warn_lim = guard.get("warn_limit", 3)
+    punish = str(guard.get("punishment", "mute")).upper()
+
+    fsub_enabled = fsub.get("is_enabled", False)
+    fsub_channels = fsub.get("channels", [])
+    fsub_status = f"🟢 Yoqilgan ({len(fsub_channels)} ta kanal)" if fsub_enabled and fsub_channels else "🔴 O‘chirilgan"
+
+    title = message.chat.title or f"Guruh {chat_id}"
+    status_text = (
+        f"📊 <b>Guruh Himoyasi Holati:</b> {title}\n"
+        f"ID: <code>{chat_id}</code>\n\n"
+        f"🛡 <b>Himoya filtrlari:</b>\n"
+        f"• Havolalar (Anti-Link): {anti_link}\n"
+        f"• Spam (Anti-Spam): {anti_spam}\n"
+        f"• Reklama (Anti-Ads): {anti_ads}\n"
+        f"• Tez yozish (Anti-Flood): {anti_flood} ({flood_lim} xabar / 5s)\n"
+        f"• Qayta xabar (Anti-Repeat): {anti_repeat}\n"
+        f"• So‘kish va 18+ filtri: {bad_words}\n"
+        f"• Xizmat xabarlarini tozalash: {srv_msg}\n\n"
+        f"🔔 <b>Jazo tizimi:</b>\n"
+        f"• Limit: <b>{warn_lim} ta ogohlantirish</b>\n"
+        f"• Jazo: <b>{punish}</b>\n\n"
+        f"📢 <b>Majburiy obuna:</b> {fsub_status}\n\n"
+        f"⚙️ Sozlamalarni o‘zgartirish uchun: /settings"
+    )
+
+    is_admin = await permission_service.is_user_admin(
+        bot,
+        chat_id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat
+    )
+
+    kb = None
+    if is_admin:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="⚙️ Sozlamalar paneli", callback_data=f"settings:menu:{chat_id}"),
+                    InlineKeyboardButton(text="❌ Yopish", callback_data="common:close")
+                ]
+            ]
+        )
+
+    await message.reply(status_text, reply_markup=kb, parse_mode="HTML")
 
 
 # --- Settings Submenu Callbacks ---

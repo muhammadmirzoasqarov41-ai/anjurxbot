@@ -4,20 +4,31 @@ Provides quick-start setup for newly created or configured groups.
 """
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.services.permission_service import permission_service
 from app.services.group_service import group_service
 from app.keyboards.setup import get_setup_wizard_keyboard
+from app.keyboards.help import get_private_group_redirect_keyboard
 from app.handlers.admin_helpers import verify_admin_callback, extract_group_id_from_callback
+from app.config import config
 
 router = Router(name="setup_router")
 
 
 @router.message(Command("setup"))
 async def cmd_setup(message: Message, bot: Bot):
+    # Contextual check for private chat (Requirement #12)
     if message.chat.type not in ("group", "supergroup"):
-        await message.reply("❌ Bu buyruq faqat guruhlarda ishlaydi.")
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username or config.bot_username or "AnjurXBot"
+        await message.reply(
+            "⚙️ <b>/setup faqat guruh ichida ishlaydi.</b>\n\n"
+            "Botni guruhingizga qo‘shing, unga administrator huquqini bering "
+            "va guruh ichida <code>/setup</code> buyrug‘ini yuboring.",
+            reply_markup=get_private_group_redirect_keyboard(bot_username),
+            parse_mode="HTML"
+        )
         return
 
     chat_id = message.chat.id
@@ -26,6 +37,7 @@ async def cmd_setup(message: Message, bot: Bot):
     sender_chat_id = message.sender_chat.id if message.sender_chat else None
     sender_chat_username = message.sender_chat.username if message.sender_chat else None
 
+    # Register/sync group data safely (preserves existing settings)
     await group_service.get_or_register_group(
         chat_id,
         title=message.chat.title or "",
@@ -33,24 +45,31 @@ async def cmd_setup(message: Message, bot: Bot):
         bot=bot
     )
 
-    if not await permission_service.is_user_admin(
+    # Enforce admin permission strictly (Requirement #8)
+    is_admin = await permission_service.is_user_admin(
         bot,
         chat_id,
         user_id,
         username=username,
         sender_chat_id=sender_chat_id,
         sender_chat_username=sender_chat_username,
-        chat=message.chat
-    ):
-        await message.reply("❌ Bu amal faqat guruh adminlari uchun ruxsat etilgan.")
+        chat=message.chat,
+        force_fresh=True,
+    )
+    if not is_admin:
+        await message.reply(
+            "⛔ <b>Kirish taqiqlangan!</b>\n"
+            "Bu buyruq faqat guruh egasi va administratorlari uchun mo‘ljallangan.",
+            parse_mode="HTML"
+        )
         return
 
     keyboard = get_setup_wizard_keyboard(chat_id)
     await message.reply(
         "🚀 <b>AnjurXBot Tezkor Sozlash Ustasi:</b>\n\n"
-        "Guruh himoyasini bir marta bosish orqali eng maqbul rejimda sozlang:\n\n"
-        "• <b>Oddiy rejim:</b> Reklama va spamga qarshi asosiy himoya.\n"
-        "• <b>Qattiq rejim:</b> Barcha filtrlar, qattiq flood cheklovi va so'kinish filtri faollashtiriladi.",
+        "Guruh himoyasini bir marta bosish orqali eng maqbul rejimda ishga tushiring:\n\n"
+        "• <b>Standart rejim:</b> Havolalar, spam va reklamalarni tozalash (Flood limiti: 5 ta)\n"
+        "• <b>Qat'iy rejim:</b> Barcha filtrlar + Anti-Flood (3 ta) + So‘kish filtri va Mute",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -67,8 +86,8 @@ async def cb_setup_menu(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_text(
             "🚀 <b>AnjurXBot Tezkor Sozlash Ustasi:</b>\n\n"
             "Guruh himoyasini bir marta bosish orqali sozlang:\n\n"
-            "• <b>Standart:</b> Reklama va spamga qarshi asosiy himoya.\n"
-            "• <b>Qat'iy:</b> Barcha filtrlar va so'kinish filtri faol.",
+            "• <b>Standart rejim:</b> Havolalar, spam va reklamalarni tozalash\n"
+            "• <b>Qat'iy rejim:</b> Barcha filtrlar va so‘kinish filtri faol",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -99,15 +118,15 @@ async def cb_preset_default(callback: CallbackQuery, bot: Bot):
 
     text = (
         "✅ <b>Standart himoya rejimi faollashtirildi!</b>\n\n"
-        "• Reklama va havolalar: O'chiriladi\n"
+        "• Havolalar va reklamalar: O‘chiriladi\n"
         "• Anti-Flood: 5 xabar / 5 soniya\n"
-        "• Jazo turi: Mute (3 ta ogohlantirishdan so'ng)"
+        "• Jazo turi: Mute (3 ta ogohlantirishdan so‘ng)\n\n"
+        "Batafsil sozlash uchun: /settings"
     )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"settings:menu:{group_id}"),
+                InlineKeyboardButton(text="⚙️ Sozlamalar paneli", callback_data=f"settings:menu:{group_id}"),
                 InlineKeyboardButton(text="❌ Yopish", callback_data="common:close"),
             ]
         ]
@@ -116,7 +135,7 @@ async def cb_preset_default(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
         await callback.message.reply(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer("Standart rejim qo'llandi!")
+    await callback.answer("🟢 Standart rejim yoqildi!")
 
 
 @router.callback_query(F.data.startswith("setup:preset:strict:"))
@@ -143,15 +162,15 @@ async def cb_preset_strict(callback: CallbackQuery, bot: Bot):
     text = (
         "🛡 <b>Qat'iy (Strict) himoya rejimi faollashtirildi!</b>\n\n"
         "• Barcha havolalar, spam va reklamalar bloklanadi\n"
-        "• Qaytariluvchi xabarlar va so'kinish filtri yoqildi\n"
+        "• Qaytariluvchi xabarlar va so‘kinish filtri yoqildi\n"
         "• Anti-Flood: 3 xabar / 5 soniya\n"
-        "• Jazo: 2 ta ogohlantirishdan so'ng darhol Mute!"
+        "• Jazo: 2 ta ogohlantirishdan so‘ng Mute!\n\n"
+        "Batafsil sozlash uchun: /settings"
     )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"settings:menu:{group_id}"),
+                InlineKeyboardButton(text="⚙️ Sozlamalar paneli", callback_data=f"settings:menu:{group_id}"),
                 InlineKeyboardButton(text="❌ Yopish", callback_data="common:close"),
             ]
         ]
@@ -160,4 +179,4 @@ async def cb_preset_strict(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
         await callback.message.reply(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer("Qat'iy rejim qo'llandi!")
+    await callback.answer("🟢 Qat'iy rejim yoqildi!")

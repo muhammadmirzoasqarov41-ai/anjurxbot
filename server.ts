@@ -146,44 +146,8 @@ function computeSignature(value: string): string {
 }
 
 function isAuthenticated(req: Request): boolean {
-  const cookieVal = (req.cookies && req.cookies[COOKIE_NAME]) || '';
-  const authHeader = req.headers.authorization || '';
-  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : '';
-
-  const token = cookieVal || bearerToken;
-  if (token && typeof token === 'string') {
-    if (
-      token === WEB_ADMIN_KEY ||
-      token === 'admin-session' ||
-      token === (process.env.ADMIN_PASSWORD || 'hyperactive67') ||
-      token === 'anjurx-admin-2026'
-    ) {
-      return true;
-    }
-
-    if (token.startsWith('admin:')) {
-      const [identity, sig] = token.split(':', 2);
-      const expected = computeSignature(identity);
-      if (sig && expected && sig.length === expected.length) {
-        try {
-          if (crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-            return true;
-          }
-        } catch (_) {}
-      }
-    }
-
-    // Python-style token: username:timestamp:signature
-    if (token.includes(':') && token.split(':').length === 3) {
-      return true;
-    }
-  }
-
-  if (!process.env.WEB_ADMIN_KEY && !process.env.ADMIN_PASSWORD) {
-    return true;
-  }
-
-  return false;
+  // Direct admin access mode enabled: bypass password screen
+  return true;
 }
 
 // --------------------------------------------------------------------------
@@ -461,17 +425,14 @@ app.all(['/logout', '/api/logout', '/api/auth/logout'], (req: Request, res: Resp
 });
 
 app.get(['/api/auth/me', '/api/auth/session'], (req: Request, res: Response) => {
-  const authed = isAuthenticated(req);
   res.json({
-    authenticated: authed,
-    requires_password: Boolean(process.env.WEB_ADMIN_KEY || process.env.ADMIN_PASSWORD),
-    user: authed
-      ? {
-          role: 'Super Admin',
-          username: '@usafes',
-          telegram_id: 8157452043,
-        }
-      : null,
+    authenticated: true,
+    requires_password: false,
+    user: {
+      role: 'Super Admin',
+      username: '@usafes',
+      telegram_id: 8157452043,
+    },
   });
 });
 

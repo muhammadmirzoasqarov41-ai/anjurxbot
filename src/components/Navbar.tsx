@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Users, Radio, AlertTriangle, PlayCircle, BarChart3, LogOut, Terminal, UserCheck } from 'lucide-react';
+import { Shield, Users, Radio, AlertTriangle, PlayCircle, BarChart3, Terminal, UserCheck, RefreshCw } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: string;
@@ -87,23 +87,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Super Admin Badge */}
-            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-[#09131e] border border-[#1b2b40] rounded-lg text-[11px] text-slate-300">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 bg-[#09131e] border border-[#1b2b40] rounded-lg text-[11px] text-slate-300">
               <UserCheck className="w-3.5 h-3.5 text-[#00ff66]" />
               <span>@usafes [8157452043]</span>
             </div>
 
-            {/* Logout Button */}
-            {authenticated && (
-              <button
-                id="btn-logout"
-                onClick={onLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:text-rose-300 bg-[#0d1522] hover:bg-rose-950/40 border border-[#1b2b40] hover:border-rose-500/40 rounded-lg transition-all cursor-pointer"
-                title="Super Admin sessiyasini tugatish"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Chiqish</span>
-              </button>
-            )}
+            {/* Refresh Data Button */}
+            <button
+              id="btn-refresh"
+              onClick={onLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#00ff66] hover:text-white bg-[#0d1522] hover:bg-[#00ff66]/20 border border-[#00ff66]/30 rounded-lg transition-all cursor-pointer"
+              title="Barcha ma'lumotlarni yangilash"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Yangilash</span>
+            </button>
           </div>
         </div>
 

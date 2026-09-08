@@ -1,24 +1,24 @@
 """
 Quick setup wizard keyboards.
+Provides one-touch preset configuration and fast jumping to granular settings.
 """
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from app.keyboards.common import get_close_button, get_back_button
+from app.keyboards.common import get_close_button
 
 
 def get_setup_wizard_keyboard(group_id: int) -> InlineKeyboardMarkup:
     gid = str(group_id)
     keyboard = [
         [
-            InlineKeyboardButton(text="⚡️ Standart himoyani yoqish", callback_data=f"setup:preset:default:{gid}"),
+            InlineKeyboardButton(text="⚡️ Standart rejim (Tavsiya etiladi)", callback_data=f"setup:preset:default:{gid}"),
         ],
         [
-            InlineKeyboardButton(text="🔒 Qat'iy himoyani yoqish", callback_data=f"setup:preset:strict:{gid}"),
+            InlineKeyboardButton(text="🔒 Qat'iy rejim (Maksimal himoya)", callback_data=f"setup:preset:strict:{gid}"),
         ],
         [
-            InlineKeyboardButton(text="🎛 Maxsus sozlash", callback_data=f"guard:menu:{gid}"),
+            InlineKeyboardButton(text="⚙️ Barcha sozlamalar (/settings)", callback_data=f"settings:menu:{gid}"),
         ],
         [
-            get_back_button(f"admin:panel:{gid}"),
             get_close_button(),
         ],
     ]

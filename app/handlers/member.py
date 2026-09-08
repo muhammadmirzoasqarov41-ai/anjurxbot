@@ -45,10 +45,12 @@ async def on_bot_status_changed(event: ChatMemberUpdated, bot: Bot):
         try:
             await bot.send_message(
                 chat_id=chat.id,
-                text="✅ <b>AnjurXBot</b> administrator etib tayinlandi! Barcha himoya filtrlari faollashtirildi.\n\n"
-                     "🛡 Himoya sozlamalari: /guard\n"
-                     "📢 Majburiy obuna: /fsub\n"
-                     "⚙️ Boshqaruv paneli: /panel",
+                text="⚡️ <b>AnjurXBot faol va himoyaga tayyor!</b>\n\n"
+                     "Guruhni sozlash uchun buyruqlar:\n"
+                     "• /setup — tezkor sozlash ustasi\n"
+                     "• /settings — to'liq sozlamalar paneli\n"
+                     "• /status — joriy himoya holati",
+                reply_markup=get_setup_wizard_keyboard(chat.id),
                 parse_mode="HTML"
             )
         except Exception as e:
@@ -66,10 +68,9 @@ async def on_bot_status_changed(event: ChatMemberUpdated, bot: Bot):
         try:
             await bot.send_message(
                 chat_id=chat.id,
-                text="👋 Assalomu alaykum! Men <b>AnjurXBot</b>man.\n"
-                     "Guruhni xavfsiz va toza saqlashda yordam beraman.\n\n"
-                     "To'liq ishlashim uchun menga guruhda <b>Administrator</b> huquqlarini bering va "
-                     "/setup buyrug'i orqali tezkor sozlashni bajaring!",
+                text="👋 Assalomu alaykum! Men <b>AnjurXBot</b>man.\n\n"
+                     "Guruhni to'liq himoya qilishim uchun menga <b>Administrator</b> huquqlarini bering.\n"
+                     "So'ngra /setup buyrug'i orqali tezkor sozlang!",
                 reply_markup=get_setup_wizard_keyboard(chat.id),
                 parse_mode="HTML"
             )

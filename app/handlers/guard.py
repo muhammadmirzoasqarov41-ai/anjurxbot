@@ -127,8 +127,18 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     except Exception:
         pass
 
-    status_text = "yoqildi ✅" if new_val else "o'chirildi ❌"
-    await callback.answer(f"Sozlama {status_text}")
+    name_map = {
+        "anti_link": "Anti-Link",
+        "anti_spam": "Anti-Spam",
+        "anti_ads": "Anti-Ads",
+        "anti_flood": "Anti-Flood",
+        "anti_repeat": "Anti-Repeat",
+        "bad_words_filter": "So'kish filtri",
+        "delete_service_messages": "Kirdi/Chiqdi tozalash",
+    }
+    label = name_map.get(setting_key, setting_key.replace('_', ' ').capitalize())
+    notification = f"🟢 {label} yoqildi" if new_val else f"🔴 {label} o'chirildi"
+    await callback.answer(notification)
 
 
 @router.callback_query(F.data.startswith("guard:cycle_punishment:"))
