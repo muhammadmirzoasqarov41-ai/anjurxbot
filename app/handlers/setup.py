@@ -97,14 +97,26 @@ async def cb_preset_default(callback: CallbackQuery, bot: Bot):
     for k, v in default_settings.items():
         await group_service.update_guard_setting(group_id, k, v)
 
-    await callback.message.reply(
-        "✅ <b>Oddiy himoya rejimi yoqildi!</b>\n\n"
+    text = (
+        "✅ <b>Standart himoya rejimi faollashtirildi!</b>\n\n"
         "• Reklama va havolalar: O'chiriladi\n"
         "• Anti-Flood: 5 xabar / 5 soniya\n"
-        "• Jazo turi: Mute (3 ta ogohlantirishdan so'ng)",
-        parse_mode="HTML"
+        "• Jazo turi: Mute (3 ta ogohlantirishdan so'ng)"
     )
-    await callback.answer("Oddiy rejim qo'llandi!")
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"settings:menu:{group_id}"),
+                InlineKeyboardButton(text="❌ Yopish", callback_data="common:close"),
+            ]
+        ]
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.reply(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer("Standart rejim qo'llandi!")
 
 
 @router.callback_query(F.data.startswith("setup:preset:strict:"))
@@ -128,12 +140,24 @@ async def cb_preset_strict(callback: CallbackQuery, bot: Bot):
     for k, v in strict_settings.items():
         await group_service.update_guard_setting(group_id, k, v)
 
-    await callback.message.reply(
-        "🛡 <b>Qattiq (Strict) himoya rejimi yoqildi!</b>\n\n"
+    text = (
+        "🛡 <b>Qat'iy (Strict) himoya rejimi faollashtirildi!</b>\n\n"
         "• Barcha havolalar, spam va reklamalar bloklanadi\n"
         "• Qaytariluvchi xabarlar va so'kinish filtri yoqildi\n"
         "• Anti-Flood: 3 xabar / 5 soniya\n"
-        "• Jazo: 2 ta ogohlantirishdan so'ng darhol Mute!",
-        parse_mode="HTML"
+        "• Jazo: 2 ta ogohlantirishdan so'ng darhol Mute!"
     )
-    await callback.answer("Qattiq rejim qo'llandi!")
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"settings:menu:{group_id}"),
+                InlineKeyboardButton(text="❌ Yopish", callback_data="common:close"),
+            ]
+        ]
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.reply(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer("Qat'iy rejim qo'llandi!")

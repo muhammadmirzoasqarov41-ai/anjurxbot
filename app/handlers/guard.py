@@ -10,6 +10,12 @@ from aiogram.fsm.context import FSMContext
 from app.services.permission_service import permission_service
 from app.services.group_service import group_service
 from app.keyboards.guard import get_guard_settings_keyboard
+from app.keyboards.settings import (
+    get_settings_guard_keyboard,
+    get_settings_sec_keyboard,
+    get_settings_warns_keyboard,
+    get_settings_srv_keyboard,
+)
 from app.states.admin_states import BadWordsState, FloodThresholdState, WarningLimitState
 from app.handlers.admin_helpers import verify_admin_callback, extract_group_id_from_callback
 
@@ -92,6 +98,7 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
 
     group_id = int(parts[2])
     setting_key = parts[3]
+    subview = parts[4] if len(parts) > 4 else None
 
     if not await verify_admin_callback(callback, bot, group_id):
         return
@@ -104,7 +111,17 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     await group_service.update_guard_setting(group_id, setting_key, new_val)
     guard_settings[setting_key] = new_val
 
-    keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+    if subview == "guard":
+        keyboard = get_settings_guard_keyboard(group_id, guard_settings)
+    elif subview == "sec":
+        keyboard = get_settings_sec_keyboard(group_id, guard_settings)
+    elif subview == "srv":
+        keyboard = get_settings_srv_keyboard(group_id, guard_settings)
+    elif subview == "warns":
+        keyboard = get_settings_warns_keyboard(group_id, guard_settings)
+    else:
+        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
@@ -116,7 +133,10 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("guard:cycle_punishment:"))
 async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
-    group_id = extract_group_id_from_callback(callback.data)
+    parts = callback.data.split(":")
+    group_id = int(parts[2]) if len(parts) > 2 and (parts[2].isdigit() or (parts[2].startswith("-") and parts[2][1:].isdigit())) else extract_group_id_from_callback(callback.data)
+    subview = parts[3] if len(parts) > 3 else None
+
     if not await verify_admin_callback(callback, bot, group_id):
         return
 
@@ -130,7 +150,11 @@ async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     await group_service.update_guard_setting(group_id, "punishment", new_punish)
     guard_settings["punishment"] = new_punish
 
-    keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+    if subview == "warns":
+        keyboard = get_settings_warns_keyboard(group_id, guard_settings)
+    else:
+        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
@@ -147,6 +171,7 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
 
     group_id = int(parts[2])
     target_type = parts[3]
+    subview = parts[4] if len(parts) > 4 else None
 
     if not await verify_admin_callback(callback, bot, group_id):
         return
@@ -172,7 +197,13 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
         await callback.answer()
         return
 
-    keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+    if subview == "sec":
+        keyboard = get_settings_sec_keyboard(group_id, guard_settings)
+    elif subview == "warns":
+        keyboard = get_settings_warns_keyboard(group_id, guard_settings)
+    else:
+        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
@@ -187,13 +218,24 @@ async def cb_guard_words(callback: CallbackQuery, bot: Bot, state: FSMContext):
         return
 
     group_config = await group_service.get_or_register_group(group_id)
-    words = group_config.get("guard_settings", {}).get("bad_words", [])
+    words = list(group_config.get("guard_settings", {}).get("bad_words", []))
+
+    total = len(words)
+    # Display preview formatted cleanly within Telegram's message limits
+    if not words:
+        words_display = "<i>Hozircha taqiqlangan so'zlar ro'yxati bo'sh.</i>"
+    else:
+        # Show words cleanly
+        words_display = ", ".join(f"<code>{w}</code>" for w in words[:120])
+        if total > 120:
+            words_display += f"\n<i>... va yana {total - 120} ta so'z</i>"
 
     text = (
-        "📝 <b>Taqiqlangan so'zlar ro'yxati:</b>\n\n"
-        + (", ".join(f"<code>{w}</code>" for w in words) if words else "Hozircha taqiqlangan so'zlar kiritilmagan.")
-        + "\n\nYangi so'z qo'shish uchun shunchaki shu guruhga yoki botga so'zni yuboring.\n"
-        "Bekor qilish uchun /cancel deb yozing."
+        f"📝 <b>Taqiqlangan so'zlar ro'yxati (Jami: {total} ta):</b>\n\n"
+        f"{words_display}\n\n"
+        "➕ <b>Yangi so'z(lar) qo'shish:</b>\n"
+        "Shunchaki shu yerga so'zni (yoki vergul bilan ajratib bir nechta so'zlarni) yuboring.\n"
+        "❌ Bekor qilish uchun: <code>/cancel</code>"
     )
     await state.set_state(BadWordsState.waiting_for_word)
     await state.update_data(group_id=group_id)
@@ -203,27 +245,47 @@ async def cb_guard_words(callback: CallbackQuery, bot: Bot, state: FSMContext):
 
 @router.message(BadWordsState.waiting_for_word)
 async def process_new_bad_word(message: Message, state: FSMContext):
-    if message.text and message.text.strip().lower() == "/cancel":
+    raw_text = (message.text or "").strip()
+    if raw_text.lower() == "/cancel":
         await state.clear()
         await message.reply("Amal bekor qilindi.")
         return
 
     data = await state.get_data()
     group_id = data.get("group_id")
-    word = (message.text or "").strip().lower()
 
-    if not word or len(word) < 2:
-        await message.reply("So'z juda qisqa. Kamida 2 ta belgidan iborat bo'lishi kerak.")
+    if not group_id:
+        await state.clear()
         return
 
-    if group_id:
-        group_config = await group_service.get_or_register_group(group_id)
-        words = list(group_config.get("guard_settings", {}).get("bad_words", []))
-        if word not in words:
-            words.append(word)
-            await group_service.update_guard_setting(group_id, "bad_words", words)
-            await message.reply(f"✅ <code>{word}</code> taqiqlangan so'zlar ro'yxatiga qo'shildi!", parse_mode="HTML")
-        else:
-            await message.reply(f"ℹ️ <code>{word}</code> allaqachon ro'yxatda mavjud.", parse_mode="HTML")
+    # Parse single or comma/newline-separated words
+    items = [item.strip().lower() for item in raw_text.replace("\n", ",").split(",") if item.strip()]
+    valid_new_words = [w for w in items if len(w) >= 2]
+
+    if not valid_new_words:
+        await message.reply("⚠️ Hech qanday to'g'ri so'z topilmadi. Har bir so'z kamida 2 ta harfdan iborat bo'lishi kerak.")
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    existing_words = list(group_config.get("guard_settings", {}).get("bad_words", []))
+    added = []
+
+    for word in valid_new_words:
+        if word not in existing_words:
+            existing_words.append(word)
+            added.append(word)
+
+    if added:
+        await group_service.update_guard_setting(group_id, "bad_words", existing_words)
+        added_str = ", ".join(f"<code>{w}</code>" for w in added[:30])
+        if len(added) > 30:
+            added_str += f" va yana {len(added) - 30} ta"
+        await message.reply(
+            f"✅ <b>{len(added)} ta so'z</b> taqiqlangan so'zlar ro'yxatiga muvaffaqiyatli qo'shildi:\n{added_str}\n\n"
+            f"📊 <i>Ro'yxatdagi jami so'zlar: {len(existing_words)} ta.</i>",
+            parse_mode="HTML"
+        )
+    else:
+        await message.reply("ℹ️ Kiritilgan barcha so'zlar allaqachon ro'yxatda mavjud edi.")
 
     await state.clear()

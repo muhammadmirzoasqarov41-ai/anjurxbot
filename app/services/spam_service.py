@@ -43,13 +43,19 @@ class SpamService:
             return False
         # Normalize text: keep alphanumeric and spaces
         cleaned = re.sub(r"[^\w\s]", "", text.lower())
-        words = set(cleaned.split())
+        # Collapse elongated characters (e.g. jalaaaap -> jalap, fuuuuck -> fuck)
+        collapsed = re.sub(r"(.)\1{2,}", r"\1", cleaned)
+        collapsed_double = re.sub(r"(.)\1{2,}", r"\1\1", cleaned)
+
+        words = set(cleaned.split()) | set(collapsed.split()) | set(collapsed_double.split())
         for bw in bad_words:
             bw_clean = bw.strip().lower()
-            if bw_clean and bw_clean in words:
+            if not bw_clean:
+                continue
+            if bw_clean in words:
                 return True
-            # Also check substring for bad words with length > 4
-            if len(bw_clean) >= 4 and bw_clean in cleaned:
+            # Substring check for bad words with length >= 4
+            if len(bw_clean) >= 4 and (bw_clean in cleaned or bw_clean in collapsed or bw_clean in collapsed_double):
                 return True
         return False
 

@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { initializeApp, cert, getApps, ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { createServer as createViteServer } from 'vite';
+import { ALL_BAD_WORDS } from './src/data/badWords';
 
 dotenv.config();
 
@@ -292,11 +293,17 @@ function mapFirestoreGroup(docId: string, data: any): StoredGroup {
       flood_limit: Number(guardRaw.flood_limit ?? 5),
       flood_window: Number(guardRaw.flood_window ?? 5),
       mute_duration: Number(guardRaw.mute_duration ?? 300),
-      bad_words_list: Array.isArray(guardRaw.bad_words_list)
-        ? guardRaw.bad_words_list
-        : Array.isArray(guardRaw.bad_words)
-        ? guardRaw.bad_words
-        : [],
+      bad_words_list: (() => {
+        const rawList = Array.isArray(guardRaw.bad_words_list)
+          ? guardRaw.bad_words_list
+          : Array.isArray(guardRaw.bad_words)
+          ? guardRaw.bad_words
+          : [];
+        if (rawList.length < 10) {
+          return Array.from(new Set([...rawList, ...ALL_BAD_WORDS]));
+        }
+        return rawList;
+      })(),
     },
     fsub_channels: channelsList.map((ch: any) => ({
       channel_id: ch.channel_id,
@@ -1040,7 +1047,7 @@ app.post('/api/bot/simulate', async (req: Request, res: Response) => {
     flood_limit: 5,
     flood_window: 5,
     mute_duration: 300,
-    bad_words_list: ['ahmoq', 'scam', 'kazino', '1xbet', 'reklama'],
+    bad_words_list: ALL_BAD_WORDS,
   };
 
   let triggered = false;

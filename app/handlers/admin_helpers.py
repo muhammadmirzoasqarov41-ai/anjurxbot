@@ -15,10 +15,15 @@ async def verify_admin_callback(
 ) -> bool:
     """
     Ensures that the user pressing the button is an authorized group admin or bot superadmin.
+    Strictly verifies Telegram numeric user_id.
     """
-    user_id = callback.from_user.id
-    username = callback.from_user.username
-    if config.is_admin(user_id=user_id, username=username):
+    user_id = callback.from_user.id if callback.from_user else 0
+    if not user_id:
+        await callback.answer("❌ Foydalanuvchi aniqlanmadi.", show_alert=True)
+        return False
+
+    # Super Admin has global override strictly by ID
+    if config.is_super_admin(user_id):
         return True
 
     chat = callback.message.chat if callback.message else None
@@ -26,11 +31,13 @@ async def verify_admin_callback(
         bot,
         group_id,
         user_id,
-        username=username,
         chat=chat
     )
     if not is_admin:
-        await callback.answer("❌ Bu amal faqat guruh adminlari uchun ruxsat etilgan!", show_alert=True)
+        await callback.answer(
+            "⛔ Bu bo‘lim faqat guruh egasi va administratorlari uchun ruxsat etilgan.",
+            show_alert=True
+        )
         return False
 
     return True

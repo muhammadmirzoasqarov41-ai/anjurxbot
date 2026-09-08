@@ -20,6 +20,7 @@ from app.handlers.guard import router as guard_router
 from app.handlers.fsub import router as fsub_router
 from app.handlers.admin import router as admin_router
 from app.handlers.member import router as member_router
+from app.handlers.errors import router as errors_router
 
 logger = logging.getLogger("anjurxbot.bot")
 
@@ -61,5 +62,6 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(fsub_router)
     dp.include_router(admin_router)
     dp.include_router(member_router)
+    dp.include_router(errors_router)
 
     return dp

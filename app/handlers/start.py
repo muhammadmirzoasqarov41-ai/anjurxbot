@@ -80,15 +80,15 @@ async def cmd_help(message: Message):
     help_text = (
         "📖 <b>AnjurXBot Buyruqlar Qo'llanmasi:</b>\n\n"
         "<b>Guruh adminlari uchun:</b>\n"
-        "• /panel — Asosiy boshqaruv paneli\n"
+        "• /settings — Guruhning to'liq sozlamalar paneli\n"
         "• /guard — Himoya va filtr sozlamalari\n"
         "• /fsub — Majburiy obuna sozlamalari\n"
         "• /setup — Tezkor sozlash ustasi\n"
         "• /warn — Foydalanuvchiga ogohlantirish berish (reply orqali)\n"
         "• /mute — Foydalanuvchini vaqtincha ovozini o'chirish (reply orqali)\n"
         "• /unmute — Ovoz cheklovini bekor qilish (reply orqali)\n\n"
-        "<b>Bot boshqaruvchilari uchun:</b>\n"
-        "• /admin — Global statistikalar va tizim holati"
+        "<b>Bot Super Admini uchun:</b>\n"
+        "• /admin — Super Admin boshqaruv markazi va barcha guruhlar monitoringi"
     )
     await message.reply(help_text, parse_mode="HTML")
 
@@ -110,4 +110,20 @@ async def cb_help(callback: CallbackQuery):
     )
     await callback.message.reply(help_text, parse_mode="HTML")
     await callback.answer()
+
+
+@router.message(Command("id", "myid"))
+async def cmd_my_id(message: Message):
+    """Returns the caller's numeric user ID and current chat ID."""
+    user = message.from_user
+    if not user:
+        return
+    un = f"@{user.username}" if user.username else "mavjud emas"
+    text = (
+        f"🆔 <b>Sizning Telegram ID:</b> <code>{user.id}</code>\n"
+        f"👤 <b>Username:</b> {un}\n"
+        f"💬 <b>Chat ID:</b> <code>{message.chat.id}</code> ({message.chat.type})"
+    )
+    await message.reply(text, parse_mode="HTML")
+
 

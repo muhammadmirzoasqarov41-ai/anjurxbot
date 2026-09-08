@@ -9,6 +9,7 @@ from aiogram.types import Chat
 from app.config import config
 from app.services.firebase import firebase_service
 from app.services.permission_service import permission_service
+from app.services.bad_words_data import ALL_DEFAULT_BAD_WORDS
 
 logger = logging.getLogger("anjurxbot.group_service")
 
@@ -23,9 +24,7 @@ DEFAULT_GUARD_SETTINGS = {
     "flood_window": 5,
     "warn_limit": 3,
     "punishment": "mute",  # 'mute', 'kick', 'ban'
-    "bad_words": [
-        "ahmoq", "tentak", "haromi", "iflos", "jalap", "it", "chochqa"
-    ],
+    "bad_words": list(ALL_DEFAULT_BAD_WORDS),
 }
 
 DEFAULT_FSUB_SETTINGS = {
@@ -86,7 +85,7 @@ class GroupService:
 
             save_ok = await firebase_service.save_group(group_id, group_doc)
             logger.info(
-                f"GROUP DETECTED chat_id={group_id} chat_type={group_doc.get('type')} "
+                f"GROUP_REGISTERED chat_id={group_id} chat_type={group_doc.get('type')} "
                 f"title='{group_doc.get('title')}' owner_id={group_doc.get('owner_id')} "
                 f"admins_count={len(group_doc.get('admins', []))} firebase_group_saved={save_ok}"
             )
@@ -96,6 +95,13 @@ class GroupService:
             if "guard_settings" not in group_doc:
                 group_doc["guard_settings"] = dict(DEFAULT_GUARD_SETTINGS)
                 updated = True
+            else:
+                current_words = group_doc["guard_settings"].get("bad_words", [])
+                if not current_words or len(current_words) < 10:
+                    # Upgrade to comprehensive list preserving existing custom words
+                    merged_words = list(dict.fromkeys(list(current_words) + list(ALL_DEFAULT_BAD_WORDS)))
+                    group_doc["guard_settings"]["bad_words"] = merged_words
+                    updated = True
             if "force_sub" not in group_doc:
                 group_doc["force_sub"] = dict(DEFAULT_FSUB_SETTINGS)
                 updated = True
@@ -113,7 +119,8 @@ class GroupService:
                     updated = True
 
             if updated:
-                await firebase_service.save_group(group_id, group_doc)
+                save_ok = await firebase_service.save_group(group_id, group_doc)
+                logger.info(f"FIRESTORE_GROUP_UPDATED group_id={group_id} saved={save_ok}")
 
         self._cache[group_id] = (group_doc, now)
         return group_doc
@@ -133,15 +140,7 @@ class GroupService:
             if owner_id:
                 group_doc["owner_id"] = owner_id
                 group_doc["owner"] = owner_data
-            elif not group_doc.get("owner_id") and config.admin_ids:
-                group_doc["owner_id"] = config.admin_ids[0]
-                group_doc["owner"] = {
-                    "user_id": config.admin_ids[0],
-                    "username": config.admin_usernames[0] if config.admin_usernames else "admin",
-                    "first_name": "Super Admin",
-                    "last_name": "",
-                    "is_bot": False
-                }
+            # Note: Never populate fake or placeholder owner_id; creator is strictly determined via Telegram API.
 
             if admins_list:
                 group_doc["admins"] = admins_list
@@ -223,6 +222,7 @@ class GroupService:
         guard[key] = value
         success = await firebase_service.update_group_settings(group_id, f"guard_settings.{key}", value)
         self._cache[group_id] = (group, time.time())
+        logger.info(f"GROUP_SETTINGS_UPDATED group_id={group_id} key=guard_settings.{key} value={value} success={success}")
         return success
 
     async def update_fsub_setting(self, group_id: int, key: str, value: Any) -> bool:
@@ -231,6 +231,7 @@ class GroupService:
         fsub[key] = value
         success = await firebase_service.update_group_settings(group_id, f"force_sub.{key}", value)
         self._cache[group_id] = (group, time.time())
+        logger.info(f"GROUP_SETTINGS_UPDATED group_id={group_id} key=force_sub.{key} value={value} success={success}")
         return success
 
     def invalidate_cache(self, group_id: int) -> None:

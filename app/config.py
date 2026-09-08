@@ -22,8 +22,9 @@ logger = logging.getLogger("anjurxbot.config")
 class Config:
     bot_token: str = field(default_factory=lambda: os.getenv("BOT_TOKEN", "").strip())
     bot_username: str = field(default_factory=lambda: os.getenv("BOT_USERNAME", "").strip())
-    admin_ids: List[int] = field(default_factory=list)
-    admin_usernames: List[str] = field(default_factory=list)
+    super_admin_id: Optional[int] = 8157452043
+    admin_ids: List[int] = field(default_factory=lambda: [8157452043])
+    admin_usernames: List[str] = field(default_factory=lambda: ["usafes"])
     firebase_service_account: Optional[dict] = None
     firebase_project_id: str = field(
         default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", "anjurxbot").strip() or "anjurxbot"
@@ -43,22 +44,24 @@ class Config:
     )
 
     def __post_init__(self):
-        # Parse Admin IDs (support both ADMIN_IDS and ADMIN_ID)
-        raw_admin_ids = os.getenv("ADMIN_IDS", "").strip()
-        raw_single_admin = os.getenv("ADMIN_ID", "").strip()
-        parsed_ids = []
-        for val in [raw_admin_ids, raw_single_admin]:
+        # Parse Admin IDs (support SUPER_ADMIN_ID, ADMIN_IDS, and ADMIN_ID)
+        raw_super_admin = os.getenv("SUPER_ADMIN_ID", "8157452043").strip()
+        raw_admin_ids = os.getenv("ADMIN_IDS", "8157452043").strip()
+        raw_single_admin = os.getenv("ADMIN_ID", "8157452043").strip()
+        parsed_ids = [8157452043]
+        for val in [raw_super_admin, raw_admin_ids, raw_single_admin]:
             if val:
                 for item in val.split(","):
                     clean = item.strip()
                     if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
                         parsed_ids.append(int(clean))
         self.admin_ids = list(dict.fromkeys(parsed_ids))
+        self.super_admin_id = self.admin_ids[0] if self.admin_ids else 8157452043
 
         # Parse Admin Usernames (support both ADMIN_USERNAMES and ADMIN_USERNAME)
         raw_admin_usernames = os.getenv("ADMIN_USERNAMES", "").strip()
-        raw_single_username = os.getenv("ADMIN_USERNAME", "").strip()
-        parsed_un = []
+        raw_single_username = os.getenv("ADMIN_USERNAME", "usafes").strip()
+        parsed_un = ["usafes"]
         for val in [raw_admin_usernames, raw_single_username]:
             if val:
                 for item in val.split(","):
@@ -131,13 +134,21 @@ class Config:
         if self.firebase_service_account and self.firebase_service_account.get("project_id"):
             self.firebase_project_id = self.firebase_service_account["project_id"]
 
+    def is_super_admin(self, user_id: Optional[int]) -> bool:
+        """
+        Strict ID-based check for Super Admin.
+        Security rule: Super Admin access is granted solely by Telegram User ID, never by username.
+        """
+        if user_id is None:
+            return False
+        if self.super_admin_id and user_id == self.super_admin_id:
+            return True
+        return user_id in self.admin_ids
+
     def is_admin(self, user_id: Optional[int] = None, username: Optional[str] = None) -> bool:
+        """Strictly ID-based check for Super Admin. Usernames are never used for privilege checks."""
         if user_id is not None and user_id in self.admin_ids:
             return True
-        if username:
-            clean_un = username.strip().lstrip("@").lower()
-            if clean_un and clean_un in self.admin_usernames:
-                return True
         return False
 
     def has_token(self) -> bool:

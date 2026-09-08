@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Sliders, Plus, X, Save, CheckCircle2, AlertCircle, Crown, UserCheck, Users, Bot, Info } from 'lucide-react';
+import { Shield, ShieldAlert, Sliders, Plus, X, Save, CheckCircle2, AlertCircle, Crown, UserCheck, Users, Bot, Info, Search, Sparkles, Trash2 } from 'lucide-react';
 import { TelegramGroup, GuardSettings } from '../types';
+import { UZBEK_BAD_WORDS, RUSSIAN_BAD_WORDS, ENGLISH_BAD_WORDS, ALL_BAD_WORDS } from '../data/badWords';
 
 interface GuardViewProps {
   groups: TelegramGroup[];
@@ -29,6 +30,7 @@ export const GuardView: React.FC<GuardViewProps> = ({ groups, onUpdateGuard }) =
   );
 
   const [newBadWord, setNewBadWord] = useState('');
+  const [searchBadWord, setSearchBadWord] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -57,16 +59,37 @@ export const GuardView: React.FC<GuardViewProps> = ({ groups, onUpdateGuard }) =
 
   const handleAddBadWord = (e: React.FormEvent) => {
     e.preventDefault();
-    const word = newBadWord.trim().toLowerCase();
-    if (!word) return;
-    if (!guard.bad_words_list.includes(word)) {
+    if (!newBadWord.trim()) return;
+    const splitWords = newBadWord
+      .split(/[,;\n]+/)
+      .map((w) => w.trim().toLowerCase())
+      .filter((w) => w.length >= 2);
+    if (splitWords.length > 0) {
       setGuard((prev) => ({
         ...prev,
-        bad_words_list: [...prev.bad_words_list, word],
+        bad_words_list: Array.from(new Set([...prev.bad_words_list, ...splitWords])),
       }));
     }
     setNewBadWord('');
     setSavedSuccess(false);
+  };
+
+  const handleLoadPreset = (wordsToMerge: string[]) => {
+    setGuard((prev) => ({
+      ...prev,
+      bad_words_list: Array.from(new Set([...prev.bad_words_list, ...wordsToMerge])),
+    }));
+    setSavedSuccess(false);
+  };
+
+  const handleClearBadWords = () => {
+    if (window.confirm("Rostdan ham barcha taqiqlangan so'zlarni tozalamoqchimisiz?")) {
+      setGuard((prev) => ({
+        ...prev,
+        bad_words_list: [],
+      }));
+      setSavedSuccess(false);
+    }
   };
 
   const handleRemoveBadWord = (wordToRemove: string) => {
@@ -408,48 +431,119 @@ export const GuardView: React.FC<GuardViewProps> = ({ groups, onUpdateGuard }) =
 
       {/* Bad Words List Editor */}
       <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-        <h2 className="text-base font-bold text-white mb-1">Taqiqlangan So'zlar Lug'ati (Bad Words List)</h2>
-        <p className="text-xs text-slate-400 mb-4">
-          Xabarda ushbu so'zlardan biri uchrashi bilanoq foydalanuvchiga ogohlantirish beriladi
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+          <div>
+            <h2 className="text-base font-bold text-white mb-0.5">Taqiqlangan So'zlar Lug'ati (Bad Words List)</h2>
+            <p className="text-xs text-slate-400">
+              Xabarda ushbu so'zlardan biri uchrashi bilanoq avtomatik tarzda o'chiriladi va chora ko'riladi
+            </p>
+          </div>
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20 self-start sm:self-auto">
+            Jami: {guard.bad_words_list.length} ta so'z
+          </span>
+        </div>
 
-        <form onSubmit={handleAddBadWord} className="flex gap-2 mb-4">
-          <input
-            id="input-bad-word"
-            type="text"
-            placeholder="Yangi taqiqlangan so'z kiriting..."
-            value={newBadWord}
-            onChange={(e) => setNewBadWord(e.target.value)}
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-          />
+        {/* Quick Presets */}
+        <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-slate-800/60 rounded-lg border border-slate-800">
+          <span className="text-xs text-slate-400 flex items-center gap-1 font-medium">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Tezkor to'plamlar:</span>
+          </span>
           <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
+            type="button"
+            onClick={() => handleLoadPreset(UZBEK_BAD_WORDS)}
+            className="px-2.5 py-1 text-xs rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            <span>Qo'shish</span>
+            🇺🇿 O'zbekcha ({UZBEK_BAD_WORDS.length})
           </button>
-        </form>
+          <button
+            type="button"
+            onClick={() => handleLoadPreset(RUSSIAN_BAD_WORDS)}
+            className="px-2.5 py-1 text-xs rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+          >
+            🇷🇺 Ruscha ({RUSSIAN_BAD_WORDS.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => handleLoadPreset(ENGLISH_BAD_WORDS)}
+            className="px-2.5 py-1 text-xs rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+          >
+            🇬🇧 Inglizcha ({ENGLISH_BAD_WORDS.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => handleLoadPreset(ALL_BAD_WORDS)}
+            className="px-2.5 py-1 text-xs rounded-md bg-blue-600/80 hover:bg-blue-600 text-white font-medium transition-colors"
+          >
+            ⚡ Barchasini yuklash ({ALL_BAD_WORDS.length})
+          </button>
+          {guard.bad_words_list.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearBadWords}
+              className="ml-auto px-2 py-1 text-xs rounded-md text-slate-400 hover:text-rose-400 transition-colors flex items-center gap-1"
+              title="Ro'yxatni tozalash"
+            >
+              <Trash2 className="w-3 h-3" />
+              <span>Tozalash</span>
+            </button>
+          )}
+        </div>
 
-        <div className="flex flex-wrap gap-2">
+        {/* Input and Search Controls */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 mb-4">
+          <form onSubmit={handleAddBadWord} className="md:col-span-8 flex gap-2">
+            <input
+              id="input-bad-word"
+              type="text"
+              placeholder="Yangi so'z yoki vergul bilan ajratilgan so'zlar..."
+              value={newBadWord}
+              onChange={(e) => setNewBadWord(e.target.value)}
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Qo'shish</span>
+            </button>
+          </form>
+
+          <div className="md:col-span-4 relative">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Ro'yxatdan qidirish..."
+              value={searchBadWord}
+              onChange={(e) => setSearchBadWord(e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Words Tags Display */}
+        <div className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-1">
           {guard.bad_words_list.length === 0 ? (
-            <span className="text-xs text-slate-500 italic">Hozircha taqiqlangan so'zlar kiritilmagan.</span>
+            <span className="text-xs text-slate-500 italic py-2">Hozircha taqiqlangan so'zlar kiritilmagan. Yuqoridagi to'plamlardan birini tanlashingiz mumkin.</span>
           ) : (
-            guard.bad_words_list.map((word) => (
-              <span
-                key={word}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 text-xs font-medium border border-slate-700"
-              >
-                <span>{word}</span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveBadWord(word)}
-                  className="text-slate-400 hover:text-rose-400 transition-colors"
+            guard.bad_words_list
+              .filter((word) => !searchBadWord || word.toLowerCase().includes(searchBadWord.toLowerCase()))
+              .map((word) => (
+                <span
+                  key={word}
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-mono border border-slate-700/80"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </span>
-            ))
+                  <span>{word}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBadWord(word)}
+                    className="text-slate-500 hover:text-rose-400 transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))
           )}
         </div>
       </div>

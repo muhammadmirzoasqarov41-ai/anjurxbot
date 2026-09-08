@@ -2,7 +2,7 @@
 Quick setup wizard keyboards.
 """
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from app.keyboards.common import get_close_button
+from app.keyboards.common import get_close_button, get_back_button
 
 
 def get_setup_wizard_keyboard(group_id: int) -> InlineKeyboardMarkup:
@@ -18,6 +18,7 @@ def get_setup_wizard_keyboard(group_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🎛 Maxsus sozlash", callback_data=f"guard:menu:{gid}"),
         ],
         [
+            get_back_button(f"admin:panel:{gid}"),
             get_close_button(),
         ],
     ]
