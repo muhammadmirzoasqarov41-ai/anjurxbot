@@ -6,13 +6,12 @@ import { GuardView } from './components/GuardView';
 import { ForceSubView } from './components/ForceSubView';
 import { ModerationView } from './components/ModerationView';
 import { SimulatorView } from './components/SimulatorView';
-import { LoginModal } from './components/LoginModal';
+import { LoginView } from './components/LoginView';
 import { TelegramUser, TelegramGroup, ModerationLog, SystemStats, GuardSettings, ForceSubChannel } from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [authenticated, setAuthenticated] = useState<boolean>(true);
-  const [loginModalOpen, setLoginModalOpen] = useState<boolean>(false);
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null); // null = checking
 
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [users, setUsers] = useState<TelegramUser[]>([]);
@@ -24,22 +23,27 @@ export default function App() {
   const [groups, setGroups] = useState<TelegramGroup[]>([]);
   const [moderationLogs, setModerationLogs] = useState<ModerationLog[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [botStatus, setBotStatus] = useState<string>('running');
 
-  // Check auth and load initial state
+  // Check auth and sync state
   useEffect(() => {
     checkAuth();
-    loadAllData();
   }, []);
 
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/session');
       if (res.ok) {
         const data = await res.json();
         setAuthenticated(data.authenticated);
+        if (data.authenticated) {
+          loadAllData();
+        }
+      } else {
+        setAuthenticated(false);
       }
     } catch (e) {
-      console.error('Auth check error', e);
+      setAuthenticated(false);
     }
   };
 
@@ -54,10 +58,13 @@ export default function App() {
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/api/stats');
+      const res = await fetch('/api/admin/dashboard');
       if (res.ok) {
         const data = await res.json();
         setStats(data);
+        if (data.bot_status) {
+          setBotStatus(data.bot_status);
+        }
       }
     } catch (e) {
       console.error('Failed to load stats', e);
@@ -71,7 +78,7 @@ export default function App() {
         limit: '50',
         search,
       });
-      const res = await fetch(`/api/users?${query}`);
+      const res = await fetch(`/api/admin/users?${query}`);
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
@@ -86,7 +93,7 @@ export default function App() {
 
   const loadGroups = async () => {
     try {
-      const res = await fetch('/api/groups');
+      const res = await fetch('/api/admin/groups');
       if (res.ok) {
         const data = await res.json();
         setGroups(data.groups || []);
@@ -98,7 +105,7 @@ export default function App() {
 
   const loadModerationLogs = async () => {
     try {
-      const res = await fetch('/api/moderation');
+      const res = await fetch('/api/admin/logs');
       if (res.ok) {
         const data = await res.json();
         setModerationLogs(data.logs || []);
@@ -110,17 +117,24 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', { method: 'POST' });
-      setAuthenticated(false);
-      setLoginModalOpen(true);
+      await fetch('/api/auth/logout', { method: 'POST' });
     } catch (e) {
       console.error(e);
+    } finally {
+      setAuthenticated(false);
+      window.history.pushState(null, '', '/');
     }
+  };
+
+  const handleLoginSuccess = () => {
+    setAuthenticated(true);
+    window.history.pushState(null, '', '/admin');
+    loadAllData();
   };
 
   const handleClearWarns = async (userId: number) => {
     try {
-      const res = await fetch('/api/moderation/clearwarns', {
+      const res = await fetch('/api/admin/logs/clearwarns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
@@ -150,7 +164,7 @@ export default function App() {
 
   const handleUpdateGuard = async (groupId: string, guard: GuardSettings) => {
     try {
-      const res = await fetch(`/api/groups/${groupId}/guard`, {
+      const res = await fetch(`/api/admin/groups/${groupId}/guard`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(guard),
@@ -165,7 +179,7 @@ export default function App() {
 
   const handleAddChannel = async (groupId: string, channel: Partial<ForceSubChannel>) => {
     try {
-      const res = await fetch(`/api/groups/${groupId}/fsub`, {
+      const res = await fetch(`/api/admin/groups/${groupId}/fsub`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(channel),
@@ -180,7 +194,7 @@ export default function App() {
 
   const handleRemoveChannel = async (groupId: string, channelId: string | number) => {
     try {
-      const res = await fetch(`/api/groups/${groupId}/fsub/${channelId}`, {
+      const res = await fetch(`/api/admin/groups/${groupId}/fsub/${channelId}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -211,14 +225,34 @@ export default function App() {
     }
   };
 
+  // Checking initial auth state spinner
+  if (authenticated === null) {
+    return (
+      <div className="min-h-screen bg-[#05070a] flex items-center justify-center font-mono-cyber">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-[#00ff66] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="text-xs text-[#00ff66] tracking-wider uppercase font-semibold">
+            Connecting Security Gateway...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Not authenticated: Render Fullscreen Cyber Admin Login View
+  if (!authenticated) {
+    return <LoginView onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // Authenticated: Render Cyber Control Center Dashboard
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-cyber-grid text-slate-100 flex flex-col font-sans">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onLogout={handleLogout}
         authenticated={authenticated}
-        onOpenLogin={() => setLoginModalOpen(true)}
+        botStatus={botStatus}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -228,6 +262,7 @@ export default function App() {
             groups={groups}
             recentLogs={moderationLogs}
             onNavigate={setActiveTab}
+            onRefresh={loadAllData}
           />
         )}
 
@@ -274,18 +309,15 @@ export default function App() {
         )}
       </main>
 
-      <footer className="border-t border-slate-900 bg-slate-950/80 py-6 text-center text-xs text-slate-500">
-        <p>AnjurXBot &bull; Telegram Guruhi Xavfsizlik & Moderatsiya Tizimi &bull; 2026</p>
+      <footer className="border-t border-[#121c2b] bg-[#05070a]/90 py-5 text-center text-xs text-slate-500 font-mono-cyber">
+        <div className="flex items-center justify-center gap-4">
+          <span>ANJURX_BOT PROTOCOL V2.4</span>
+          <span>&bull;</span>
+          <span>SUPER ADMIN: @usafes [8157452043]</span>
+          <span>&bull;</span>
+          <span className="text-[#00ff66]">PROTECTION ACTIVE</span>
+        </div>
       </footer>
-
-      <LoginModal
-        isOpen={loginModalOpen}
-        onClose={() => setLoginModalOpen(false)}
-        onLoginSuccess={() => {
-          setAuthenticated(true);
-          loadAllData();
-        }}
-      />
     </div>
   );
 }

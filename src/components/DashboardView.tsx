@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Users, Radio, AlertTriangle, CheckCircle, Flame, ExternalLink, Zap, Clock, Server, Crown, UserCheck } from 'lucide-react';
+import { Shield, Users, Radio, AlertTriangle, Zap, Clock, Terminal, Activity, CheckCircle2, ChevronRight, RefreshCw } from 'lucide-react';
 import { SystemStats, TelegramGroup, ModerationLog } from '../types';
 
 interface DashboardViewProps {
@@ -7,6 +7,7 @@ interface DashboardViewProps {
   groups: TelegramGroup[];
   recentLogs: ModerationLog[];
   onNavigate: (tab: string) => void;
+  onRefresh?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -14,29 +15,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   groups,
   recentLogs,
   onNavigate,
+  onRefresh,
 }) => {
   return (
-    <div className="space-y-6">
-      {/* Welcome Banner */}
-      <div className="bg-gradient-to-r from-blue-900/40 via-slate-900 to-indigo-950/40 border border-blue-500/20 rounded-2xl p-6 relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-6 font-mono-cyber">
+      {/* Cybersecurity Telemetry Banner */}
+      <div className="bg-[#080c14] border border-[#152233] rounded-xl p-6 relative overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.8)]">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[#00ff66] to-transparent" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-5">
           <div>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-400/30 mb-2">
-              <Shield className="w-3.5 h-3.5" /> AnjurXBot 2026 versiya
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Guruh Qorovuli & Boshqaruv Markazi
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00ff66] animate-pulse" />
+                PROTOCOL V2.4 PRODUCTION
+              </span>
+              <span className="text-xs text-slate-500">
+                CLOUD RUN & RENDER UNIFIED ENGINE
+              </span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+              <span>CYBER COMMAND & DEFENSE CENTER</span>
             </h1>
-            <p className="text-slate-300 text-sm mt-1 max-w-2xl">
-              Telegram guruhlaridagi spam, reklama, taqiqlangan havolalar va qallobliklarni avtomatlashtirilgan real-vaqt nazorati bilan himoya qiling.
+            <p className="text-slate-400 text-xs mt-1.5 max-w-2xl leading-relaxed">
+              Real-time Telegram group protection against flood attacks, spam, unauthorized invite links, and malicious exploits.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2.5">
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {onRefresh && (
+              <button
+                onClick={onRefresh}
+                className="p-2.5 bg-[#0d1522] hover:bg-[#142136] text-slate-300 hover:text-white rounded-lg border border-[#1b2b40] transition-colors cursor-pointer"
+                title="Telemetry yangilash"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
             <button
               id="btn-quick-simulator"
               onClick={() => onNavigate('simulator')}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-blue-600/20"
+              className="px-4 py-2.5 bg-[#00ff66] hover:bg-[#33ff85] text-black text-xs font-bold uppercase tracking-wider rounded-lg transition-all shadow-[0_0_15px_rgba(0,255,102,0.25)] flex items-center gap-2 cursor-pointer"
             >
               <Zap className="w-4 h-4" />
               <span>Xabar Sinovchi</span>
@@ -44,295 +62,236 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               id="btn-quick-guard"
               onClick={() => onNavigate('guard')}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold rounded-xl border border-slate-700 transition-colors flex items-center gap-2"
+              className="px-4 py-2.5 bg-[#0d1522] hover:bg-[#152338] text-slate-200 text-xs font-semibold rounded-lg border border-[#1b2b40] transition-colors flex items-center gap-2 cursor-pointer"
             >
-              <Shield className="w-4 h-4" />
+              <Shield className="w-4 h-4 text-[#00ff66]" />
               <span>Qorovul Sozlamalari</span>
             </button>
+          </div>
+        </div>
+
+        {/* Real telemetry strip */}
+        <div className="mt-5 pt-4 border-t border-[#141f30] grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="flex items-center gap-2 text-slate-400">
+            <Clock className="w-3.5 h-3.5 text-[#00ff66]" />
+            <span>Uptime: <strong className="text-white font-mono">{stats?.uptime_seconds ?? 0}s</strong></span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <Activity className="w-3.5 h-3.5 text-[#00ff66]" />
+            <span>Firestore: <strong className="text-white">Active (anjurxbot)</strong></span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <Terminal className="w-3.5 h-3.5 text-[#00ff66]" />
+            <span>Super Admin: <strong className="text-[#00ff66]">@usafes</strong></span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400">
+            <Radio className="w-3.5 h-3.5 text-[#00ff66]" />
+            <span>ID: <strong className="text-white font-mono">8157452043</strong></span>
           </div>
         </div>
       </div>
 
       {/* Metric Counters */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
+        {/* Total Users */}
+        <div className="bg-[#080c14] border border-[#152233] rounded-xl p-5 hover:border-[#00ff66]/50 transition-all shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Foydalanuvchilar</span>
-            <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Foydalanuvchilar
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-[#0d1624] border border-[#1b2b40] text-[#00ff66] flex items-center justify-center">
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-3xl font-extrabold text-white tracking-tight">
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white tracking-tight font-mono">
               {stats?.total_users ?? 0}
             </span>
-            <span className="text-xs text-emerald-400 font-medium ml-2">Bazadagi yozuvlar</span>
+            <span className="text-[11px] text-[#00ff66] font-medium">Bazadagi yozuvlar</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Guruh a'zolari va faol foydalanuvchilar</p>
+          <p className="text-[11px] text-slate-500 mt-1">Guruh a'zolari va foydalanuvchilar</p>
         </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
+        {/* Active Groups */}
+        <div className="bg-[#080c14] border border-[#152233] rounded-xl p-5 hover:border-[#00ff66]/50 transition-all shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Faol Guruhlar</span>
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Faol Guruhlar
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-[#0d1624] border border-[#1b2b40] text-[#00ff66] flex items-center justify-center">
               <Shield className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-3xl font-extrabold text-white tracking-tight">
-              {stats?.active_guard_groups ?? 0} / {stats?.total_groups ?? 0}
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white tracking-tight font-mono">
+              {stats?.active_guard_groups ?? groups.length} / {stats?.total_groups ?? groups.length}
             </span>
-            <span className="text-xs text-emerald-400 font-medium ml-2">100% himoyada</span>
+            <span className="text-[11px] text-[#00ff66] font-medium">Himoyalangan</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Qorovul faol bo'lgan guruhlar soni</p>
+          <p className="text-[11px] text-slate-500 mt-1">Qorovul nazoratidagi guruhlar</p>
         </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
+        {/* Spam & Threat Incidents */}
+        <div className="bg-[#080c14] border border-[#152233] rounded-xl p-5 hover:border-[#00ff66]/50 transition-all shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Bloklangan Spam</span>
-            <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <Flame className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <span className="text-3xl font-extrabold text-white tracking-tight">
-              {stats?.spam_blocked ?? 0}
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Bloklangan Spam
             </span>
-            <span className="text-xs text-amber-400 font-medium ml-2">ta xabar</span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">Anti-Spam va Anti-Ads filtrlari tomonidan</p>
-        </div>
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5 hover:border-slate-700 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">O'chirilgan Linklar</span>
-            <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-[#0d1624] border border-[#1b2b40] text-amber-400 flex items-center justify-center">
               <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-3">
-            <span className="text-3xl font-extrabold text-white tracking-tight">
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white tracking-tight font-mono">
+              {stats?.spam_blocked ?? 0}
+            </span>
+            <span className="text-[11px] text-amber-400 font-medium">Avtomatik</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">Spam, reklama va flood filtrlandi</p>
+        </div>
+
+        {/* Deleted Links */}
+        <div className="bg-[#080c14] border border-[#152233] rounded-xl p-5 hover:border-[#00ff66]/50 transition-all shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              O'chirilgan Havolalar
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-[#0d1624] border border-[#1b2b40] text-[#00ff66] flex items-center justify-center">
+              <Zap className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-white tracking-tight font-mono">
               {stats?.links_deleted ?? 0}
             </span>
-            <span className="text-xs text-rose-400 font-medium ml-2">ta havola</span>
+            <span className="text-[11px] text-[#00ff66] font-medium">Anti-link</span>
           </div>
-          <p className="text-xs text-slate-400 mt-1">Anti-Link himoyasi orqali tozalangan</p>
+          <p className="text-[11px] text-slate-500 mt-1">Guruhda ruxsatsiz linklar</p>
         </div>
       </div>
 
-      {/* Two Column Layout: System Status & Monitored Groups */}
+      {/* Main Grid: Groups Overview + Live Security Logs */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Protected Groups */}
-        <div className="lg:col-span-2 bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-lg font-bold text-white">Himoyalangan Guruhlar</h2>
-              <p className="text-xs text-slate-400">Telegram guruhlarining holati va sozlamalari</p>
+        {/* Groups Monitored (2 cols) */}
+        <div className="lg:col-span-2 bg-[#080c14] border border-[#152233] rounded-xl p-5 shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center justify-between pb-3 border-b border-[#141f30] mb-4">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-[#00ff66]" />
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                Ulangan Guruhlar Ro'yxati
+              </h2>
             </div>
             <button
-              id="btn-view-all-guard"
               onClick={() => onNavigate('guard')}
-              className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1"
+              className="text-xs text-[#00ff66] hover:underline flex items-center gap-1 cursor-pointer"
             >
-              <span>Barcha sozlamalar</span>
-              <ExternalLink className="w-3 h-3" />
+              <span>Barchasi</span>
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="space-y-3">
-            {groups.length === 0 ? (
-              <div className="bg-slate-800/30 border border-slate-800/80 rounded-xl p-6 text-center">
-                <p className="text-slate-400 text-sm">Hozircha guruhlar mavjud emas.</p>
-                <p className="text-slate-500 text-xs mt-1">
-                  Botni Telegram guruhga qo'shing va admin qiling. Guruh va uning egasi avtomatik bu yerda paydo bo'ladi.
-                </p>
-              </div>
-            ) : (
-              groups.map((group) => (
+          {groups.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-xs">
+              <Shield className="w-8 h-8 mx-auto mb-2 text-slate-600 opacity-40" />
+              <p>Hozircha guruhlar ro'yxatga olinmagan.</p>
+              <p className="text-[11px] text-slate-600 mt-1">
+                Botni Telegram guruhga qo'shing va admin huquqini bering.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#141f30] text-slate-400 text-[11px]">
+                    <th className="pb-2 font-medium">Guruh Nomi</th>
+                    <th className="pb-2 font-medium">Guruh ID</th>
+                    <th className="pb-2 font-medium">A'zolar</th>
+                    <th className="pb-2 font-medium">Qorovul</th>
+                    <th className="pb-2 font-medium text-right">Amal</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#121c2b]">
+                  {groups.slice(0, 5).map((group) => (
+                    <tr key={group._id} className="hover:bg-[#0c1320] transition-colors">
+                      <td className="py-3 font-semibold text-white">
+                        {group.title || 'Nomsiz Guruh'}
+                      </td>
+                      <td className="py-3 font-mono text-slate-400">
+                        {group.group_id}
+                      </td>
+                      <td className="py-3 text-slate-300">
+                        {group.members_count || 0}
+                      </td>
+                      <td className="py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30">
+                          <CheckCircle2 className="w-3 h-3" /> Faol
+                        </span>
+                      </td>
+                      <td className="py-3 text-right">
+                        <button
+                          onClick={() => onNavigate('guard')}
+                          className="text-[#00ff66] hover:text-[#33ff85] font-semibold text-[11px] cursor-pointer"
+                        >
+                          Sozlash
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Real Moderation Incident Feed (1 col) */}
+        <div className="bg-[#080c14] border border-[#152233] rounded-xl p-5 shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
+          <div className="flex items-center justify-between pb-3 border-b border-[#141f30] mb-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400" />
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                Xavfsizlik Jurnali
+              </h2>
+            </div>
+            <button
+              onClick={() => onNavigate('moderation')}
+              className="text-xs text-[#00ff66] hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <span>Jurnal</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {recentLogs.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-xs">
+              <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-[#00ff66] opacity-30" />
+              <p>Xavfsizlik hodisalari yo'q.</p>
+              <p className="text-[11px] text-slate-600 mt-1">Barcha guruhlar toza va tinch.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentLogs.slice(0, 5).map((log) => (
                 <div
-                  key={group._id}
-                  className="bg-slate-800/40 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-700 transition-colors"
+                  key={log.id}
+                  className="p-3 bg-[#0a101a] border border-[#141f30] rounded-lg text-xs"
                 >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white text-base">{group.title}</span>
-                      {group.guard.enabled ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          Faol
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-400">
-                          O'chirilgan
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-slate-400">
-                      <span>ID: {group.group_id}</span>
-                      {group.username && <span>@{group.username}</span>}
-                      <span>{group.members_count.toLocaleString()} ta a'zo</span>
-                      {group.owner && (
-                        <span className="inline-flex items-center gap-1 text-amber-400 font-medium">
-                          <Crown className="w-3 h-3" />
-                          {group.owner.first_name || 'Egasi'}
-                        </span>
-                      )}
-                      {(group.admins?.length ?? 0) > 0 && (
-                        <span className="inline-flex items-center gap-1 text-blue-400 font-medium">
-                          <UserCheck className="w-3 h-3" />
-                          {group.admins?.length} admin
-                        </span>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-semibold text-white">
+                      {log.username ? `@${log.username}` : `ID: ${log.user_id}`}
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      {log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : 'Yaqinda'}
+                    </span>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <div className="flex flex-wrap gap-1 text-[11px]">
-                      {group.guard.anti_spam && (
-                        <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400">Spam</span>
-                      )}
-                      {group.guard.anti_flood && (
-                        <span className="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400">Flood</span>
-                      )}
-                      {group.guard.anti_link && (
-                        <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400">Link</span>
-                      )}
-                      {group.guard.bad_words && (
-                        <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400">So'zlar</span>
-                      )}
-                    </div>
-
-                    <button
-                      onClick={() => onNavigate('guard')}
-                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors"
-                    >
-                      Sozlash
-                    </button>
+                  <div className="text-slate-400 text-[11px]">
+                    Sabab: <span className="text-amber-300 font-mono">{log.reason}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    Guruh: {log.group_title || log.group_id} &bull; Amal: {log.action}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Right 1 Col: System Engine Diagnostics */}
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6 flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Server className="w-5 h-5 text-blue-400" />
-              <h2 className="text-lg font-bold text-white">Tizim Diagnostikasi</h2>
-            </div>
-
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between py-2 border-b border-slate-800">
-                <span className="text-slate-400">Salomatlik (Health):</span>
-                <span className="flex items-center gap-1.5 text-emerald-400 font-semibold text-xs bg-emerald-500/10 px-2 py-0.5 rounded">
-                  <CheckCircle className="w-3.5 h-3.5" /> status: ok
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-2 border-b border-slate-800">
-                <span className="text-slate-400">Web Port:</span>
-                <span className="text-slate-200 font-mono text-xs">3000 (0.0.0.0)</span>
-              </div>
-
-              <div className="flex items-center justify-between py-2 border-b border-slate-800">
-                <span className="text-slate-400">Ma'lumotlar ombori:</span>
-                <span className="text-blue-400 font-semibold text-xs">
-                  {stats ? 'In-Memory / Firestore tayyor' : 'Yuklanmoqda...'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-2 border-b border-slate-800">
-                <span className="text-slate-400">Ish vaqti (Uptime):</span>
-                <span className="text-slate-200 font-mono text-xs flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-slate-400" />
-                  {stats?.uptime_seconds ? `${Math.floor(stats.uptime_seconds / 60)} daqiqa` : '1 daqiqa'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-2">
-                <span className="text-slate-400">Admin kalit himoyasi:</span>
-                <span className="text-emerald-400 text-xs font-medium">HMAC-SHA256 faol</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-slate-800/40 rounded-xl p-3 border border-slate-800 text-xs text-slate-400">
-            <span className="font-semibold text-slate-300 block mb-1">ℹ️ Xavfsizlik eslatmasi</span>
-            Telegram bot tokeni va maxfiy kalitlar faqatgina server muhitida (environment variables) saqlanadi va brauzerga chiqarilmaydi.
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Moderation Log */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-lg font-bold text-white">So'nggi Moderatsiya Harakatlari</h2>
-            <p className="text-xs text-slate-400">Qorovul tomonidan avtomatik qo'llanilgan jazolar va ogohlantirishlar</p>
-          </div>
-          <button
-            id="btn-view-all-logs"
-            onClick={() => onNavigate('moderation')}
-            className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1"
-          >
-            <span>Barchasini ko'rish</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-800/50 text-slate-400 text-xs uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4 rounded-l-lg">Vaqt</th>
-                <th className="py-3 px-4">Guruh</th>
-                <th className="py-3 px-4">Foydalanuvchi</th>
-                <th className="py-3 px-4">Harakat</th>
-                <th className="py-3 px-4 rounded-r-lg">Sabab</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/60">
-              {recentLogs.slice(0, 5).map((log) => (
-                <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
-                  <td className="py-3 px-4 text-xs font-mono text-slate-400">{log.timestamp}</td>
-                  <td className="py-3 px-4 text-slate-200 font-medium">{log.group_title}</td>
-                  <td className="py-3 px-4 text-slate-300">
-                    <span className="font-mono text-xs text-slate-400">ID: {log.user_id}</span>
-                    {log.username && <span className="text-blue-400 ml-1.5">(@{log.username})</span>}
-                  </td>
-                  <td className="py-3 px-4">
-                    {log.action === 'ban' && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                        Ban
-                      </span>
-                    )}
-                    {log.action === 'mute' && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                        Mute
-                      </span>
-                    )}
-                    {log.action === 'warn' && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                        Warn
-                      </span>
-                    )}
-                    {log.action === 'clear_warns' && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Tozalandi
-                      </span>
-                    )}
-                    {log.action === 'delete' && (
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-700 text-slate-300">
-                        O'chirildi
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-xs text-slate-300 max-w-md truncate">{log.reason}</td>
-                </tr>
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
       </div>
     </div>

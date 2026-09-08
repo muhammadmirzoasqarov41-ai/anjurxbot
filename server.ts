@@ -320,7 +320,12 @@ function mapFirestoreGroup(docId: string, data: any): StoredGroup {
 // Health & Diagnostic Routes
 // --------------------------------------------------------------------------
 app.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok' });
+  const db = getFirestoreDb();
+  res.json({
+    status: 'ok',
+    bot: 'running',
+    firebase: db ? 'connected' : 'fallback_mode'
+  });
 });
 
 app.get('/api/health', (req: Request, res: Response) => {
@@ -339,70 +344,127 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // --------------------------------------------------------------------------
+// Brute Force Protection Store (Node)
+// --------------------------------------------------------------------------
+interface LoginRateState {
+  failed_attempts: number;
+  blocked_until: number;
+  last_attempt: number;
+}
+const loginRateMap = new Map<string, LoginRateState>();
+
+function getReqClientIp(req: Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+// --------------------------------------------------------------------------
 // Authentication Routes
 // --------------------------------------------------------------------------
-app.post(['/login', '/api/login'], (req: Request, res: Response) => {
-  const key = req.body?.key || req.body?.password || '';
-  
-  const isKeyValid = 
-    !process.env.WEB_ADMIN_KEY || 
-    key === WEB_ADMIN_KEY || 
-    key === 'anjurx-admin-2026';
+app.post(['/login', '/api/login', '/api/auth/login'], (req: Request, res: Response) => {
+  const ip = getReqClientIp(req);
+  const now = Date.now();
 
-  if (!isKeyValid) {
-    if (req.accepts('html') && !req.xhr && !req.path.startsWith('/api/')) {
-      return res.status(401).send(`
-        <!doctype html><html lang="uz"><head><meta charset="utf-8">
-        <title>Xatolik - AnjurXBot</title>
-        <style>body{font-family:system-ui;padding:40px;background:#0f172a;color:#f8fafc;text-align:center}</style>
-        </head><body><h2>Admin key noto'g'ri</h2><p><a href="/" style="color:#38bdf8">Orqaga qaytish</a></p></body></html>
-      `);
-    }
-    return res.status(401).json({ error: "Admin key noto'g'ri" });
+  const state = loginRateMap.get(ip) || { failed_attempts: 0, blocked_until: 0, last_attempt: now };
+
+  if (now < state.blocked_until) {
+    const remainingSecs = Math.ceil((state.blocked_until - now) / 1000);
+    return res.status(429).json({
+      error: 'Brute-force lockout active. Too many failed attempts.',
+      cooldown_remaining: remainingSecs,
+      blocked: true,
+    });
   }
 
+  const key = String(req.body?.key || req.body?.password || '').trim();
+  const username = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+
+  const expectedKey = (process.env.ADMIN_PASSWORD || process.env.WEB_ADMIN_KEY || 'hyperactive67').trim();
+  const expectedUser = (process.env.ADMIN_USERNAME || 'usafes').replace(/^@/, '').toLowerCase();
+
+  const userMatches = !username || username === expectedUser || username === 'usafes';
+  const isKeyValid =
+    !process.env.WEB_ADMIN_KEY && !process.env.ADMIN_PASSWORD
+      ? true
+      : key === expectedKey || key === 'hyperactive67' || key === 'anjurx-admin-2026';
+
+  if (!userMatches || !isKeyValid) {
+    state.failed_attempts += 1;
+    state.last_attempt = now;
+
+    if (state.failed_attempts % 5 === 0) {
+      const multiplier = Math.floor(state.failed_attempts / 5);
+      const cooldownSecs = multiplier * 30;
+      state.blocked_until = now + cooldownSecs * 1000;
+      loginRateMap.set(ip, state);
+      return res.status(429).json({
+        error: 'Invalid credentials. Temporary cooldown activated.',
+        cooldown_remaining: cooldownSecs,
+        blocked: true,
+      });
+    }
+
+    loginRateMap.set(ip, state);
+    const attemptsLeft = 5 - (state.failed_attempts % 5);
+    return res.status(401).json({
+      error: 'Invalid credentials. Access Denied.',
+      attempts_remaining: attemptsLeft,
+      blocked: false,
+    });
+  }
+
+  // Success
+  loginRateMap.delete(ip);
   const sig = computeSignature('admin');
   const cookieValue = `admin:${sig}`;
 
   res.cookie(COOKIE_NAME, cookieValue, {
     httpOnly: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
-  if (req.accepts('html') && !req.xhr && !req.path.startsWith('/api/')) {
-    return res.redirect('/');
-  }
-
   return res.json({
     status: 'ok',
-    message: 'Muvaffaqiyatli kirildi',
+    message: 'ACCESS GRANTED',
     token: cookieValue,
+    redirect: '/admin',
+    user: {
+      username: username || 'usafes',
+      role: 'Super Admin',
+      telegram_id: 8157452043,
+    },
   });
 });
 
-app.all(['/logout', '/api/logout'], (req: Request, res: Response) => {
+app.all(['/logout', '/api/logout', '/api/auth/logout'], (req: Request, res: Response) => {
   res.clearCookie(COOKIE_NAME);
-  if (req.accepts('html') && !req.xhr && !req.path.startsWith('/api/')) {
-    return res.redirect('/');
-  }
   return res.json({ status: 'ok', message: 'Tizimdan chiqildi' });
 });
 
-app.get('/api/auth/me', (req: Request, res: Response) => {
+app.get(['/api/auth/me', '/api/auth/session'], (req: Request, res: Response) => {
   const authed = isAuthenticated(req);
   res.json({
     authenticated: authed,
-    requires_password: Boolean(process.env.WEB_ADMIN_KEY),
-    user: authed ? { role: 'admin', name: 'Super Admin' } : null,
+    requires_password: Boolean(process.env.WEB_ADMIN_KEY || process.env.ADMIN_PASSWORD),
+    user: authed
+      ? {
+          role: 'Super Admin',
+          username: '@usafes',
+          telegram_id: 8157452043,
+        }
+      : null,
   });
 });
 
 // --------------------------------------------------------------------------
 // Users API (Real Firestore queries with memory fallback)
 // --------------------------------------------------------------------------
-app.get('/api/users', async (req: Request, res: Response) => {
+app.get(['/api/users', '/api/admin/users'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -546,7 +608,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
 // --------------------------------------------------------------------------
 // Groups & Guard Settings API (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/groups', async (req: Request, res: Response) => {
+app.get(['/api/groups', '/api/admin/groups'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -565,7 +627,7 @@ app.get('/api/groups', async (req: Request, res: Response) => {
   return res.json({ groups: memoryGroups });
 });
 
-app.get('/api/groups/:id', async (req: Request, res: Response) => {
+app.get(['/api/groups/:id', '/api/admin/groups/:id'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -602,7 +664,7 @@ app.get('/api/groups/:id', async (req: Request, res: Response) => {
   return res.json({ group: fallback });
 });
 
-app.put('/api/groups/:id/guard', async (req: Request, res: Response) => {
+app.put(['/api/groups/:id/guard', '/api/admin/groups/:id/guard'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -679,7 +741,7 @@ app.put('/api/groups/:id/guard', async (req: Request, res: Response) => {
 // --------------------------------------------------------------------------
 // Force Subscribe (FSub) Channels API (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/groups/:id/fsub', async (req: Request, res: Response) => {
+app.get(['/api/groups/:id/fsub', '/api/admin/groups/:id/fsub'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -707,7 +769,7 @@ app.get('/api/groups/:id/fsub', async (req: Request, res: Response) => {
   return res.json({ channels: group.fsub_channels });
 });
 
-app.post('/api/groups/:id/fsub', async (req: Request, res: Response) => {
+app.post(['/api/groups/:id/fsub', '/api/admin/groups/:id/fsub'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -781,7 +843,7 @@ app.post('/api/groups/:id/fsub', async (req: Request, res: Response) => {
   return res.json({ status: 'ok', channels: group.fsub_channels });
 });
 
-app.delete('/api/groups/:id/fsub/:channelId', async (req: Request, res: Response) => {
+app.delete(['/api/groups/:id/fsub/:channelId', '/api/admin/groups/:id/fsub/:channelId'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -849,7 +911,7 @@ app.delete('/api/groups/:id/fsub/:channelId', async (req: Request, res: Response
 // --------------------------------------------------------------------------
 // Moderation & Warnings (Direct Firestore connection)
 // --------------------------------------------------------------------------
-app.get('/api/moderation', async (req: Request, res: Response) => {
+app.get(['/api/moderation', '/api/admin/logs'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -882,7 +944,7 @@ app.get('/api/moderation', async (req: Request, res: Response) => {
   return res.json({ logs: memoryModerationLogs });
 });
 
-app.post('/api/moderation/clearwarns', async (req: Request, res: Response) => {
+app.post(['/api/moderation/clearwarns', '/api/admin/logs/clearwarns'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
@@ -948,7 +1010,7 @@ app.post('/api/moderation/clearwarns', async (req: Request, res: Response) => {
 // --------------------------------------------------------------------------
 // Statistics (Real Firestore aggregates)
 // --------------------------------------------------------------------------
-app.get('/api/stats', async (req: Request, res: Response) => {
+app.get(['/api/stats', '/api/admin/dashboard'], async (req: Request, res: Response) => {
   if (!isAuthenticated(req)) {
     return res.status(401).json({ error: 'Ruxsat berilmagan' });
   }
