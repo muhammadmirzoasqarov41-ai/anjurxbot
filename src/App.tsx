@@ -30,9 +30,24 @@ export default function App() {
     checkAuth();
   }, []);
 
+  const getHeaders = (customHeaders: Record<string, string> = {}) => {
+    const token = localStorage.getItem('anjurx_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...customHeaders,
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   const checkAuth = async () => {
     try {
-      const res = await fetch('/api/auth/session');
+      const res = await fetch('/api/auth/session', {
+        headers: getHeaders(),
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setAuthenticated(data.authenticated);
@@ -58,7 +73,10 @@ export default function App() {
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/api/admin/dashboard');
+      const res = await fetch('/api/admin/dashboard', {
+        headers: getHeaders(),
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -78,7 +96,10 @@ export default function App() {
         limit: '50',
         search,
       });
-      const res = await fetch(`/api/admin/users?${query}`);
+      const res = await fetch(`/api/admin/users?${query}`, {
+        headers: getHeaders(),
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
@@ -93,7 +114,10 @@ export default function App() {
 
   const loadGroups = async () => {
     try {
-      const res = await fetch('/api/admin/groups');
+      const res = await fetch('/api/admin/groups', {
+        headers: getHeaders(),
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setGroups(data.groups || []);
@@ -105,7 +129,10 @@ export default function App() {
 
   const loadModerationLogs = async () => {
     try {
-      const res = await fetch('/api/admin/logs');
+      const res = await fetch('/api/admin/logs', {
+        headers: getHeaders(),
+        credentials: 'include',
+      });
       if (res.ok) {
         const data = await res.json();
         setModerationLogs(data.logs || []);
@@ -117,10 +144,16 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: getHeaders(),
+        credentials: 'include',
+      });
     } catch (e) {
       console.error(e);
     } finally {
+      localStorage.removeItem('anjurx_token');
+      localStorage.removeItem('anjurx_user');
       setAuthenticated(false);
       window.history.pushState(null, '', '/');
     }
@@ -136,7 +169,8 @@ export default function App() {
     try {
       const res = await fetch('/api/admin/logs/clearwarns', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify({ user_id: userId }),
       });
       if (res.ok) {
@@ -151,7 +185,8 @@ export default function App() {
     try {
       const res = await fetch('/api/users', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(user),
       });
       if (res.ok) {
@@ -166,7 +201,8 @@ export default function App() {
     try {
       const res = await fetch(`/api/admin/groups/${groupId}/guard`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(guard),
       });
       if (res.ok) {
@@ -181,7 +217,8 @@ export default function App() {
     try {
       const res = await fetch(`/api/admin/groups/${groupId}/fsub`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify(channel),
       });
       if (res.ok) {
@@ -196,6 +233,8 @@ export default function App() {
     try {
       const res = await fetch(`/api/admin/groups/${groupId}/fsub/${channelId}`, {
         method: 'DELETE',
+        headers: getHeaders(),
+        credentials: 'include',
       });
       if (res.ok) {
         await loadGroups();
@@ -209,7 +248,8 @@ export default function App() {
     try {
       const res = await fetch('/api/bot/simulate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
+        credentials: 'include',
         body: JSON.stringify({
           group_id: groupId,
           message_text: text,

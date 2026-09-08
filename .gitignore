@@ -22,7 +22,8 @@ htmlcov/
 
 # Node / Web
 node_modules/
-dist/
+# Keep dist committed for production python container deployment on Render
+!dist/
 dist-ssr/
 *.local
 

@@ -13,9 +13,11 @@ import hmac
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from aiohttp import web
@@ -452,12 +454,85 @@ async def handle_admin_system(request: web.Request) -> web.Response:
     })
 
 
+@require_admin
+async def handle_bot_simulate(request: web.Request) -> web.Response:
+    """Simulates a group message check against active security policies."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    group_id = body.get("group_id")
+    text = str(body.get("message_text", "")).strip()
+    username = str(body.get("username", "test_user")).strip()
+
+    # Check link detection
+    has_link = bool(re.search(r'(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+)', text, re.IGNORECASE))
+
+    # Check bad words
+    bad_words_pattern = r'(?i)\b(jinni|ahmoq|tentak|itvachcha|haromi|fahiwa|dalbayob|sikay|qotoq|kot|suka|blyad|jalab|naxuy|pidar|shlyuxa)\b'
+    has_bad_words = bool(re.search(bad_words_pattern, text))
+
+    # Check commercial ads
+    has_ads = bool(re.search(r'(?i)(aksiya|chegirma|daromad|pul ishlash|investitsiya|kripto|crypto|bonus)', text)) and has_link
+
+    if has_bad_words:
+        await db.create_document("moderation_logs", {
+            "group_id": group_id or -1001234567890,
+            "user_id": 99999999,
+            "username": username,
+            "action": "warned",
+            "reason": "Uyatsiz / haqoratli so'z aniqlandi",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        return web.json_response({
+            "allowed": False,
+            "action": "warned",
+            "reason": "Uyatsiz / haqoratli so'z aniqlandi (Bad words filter)"
+        })
+    elif has_link:
+        await db.create_document("moderation_logs", {
+            "group_id": group_id or -1001234567890,
+            "user_id": 99999999,
+            "username": username,
+            "action": "deleted",
+            "reason": "Ruxsatsiz havola / link aniqlandi",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        return web.json_response({
+            "allowed": False,
+            "action": "deleted",
+            "reason": "Ruxsatsiz havola aniqlandi (Anti-Link)"
+        })
+    elif has_ads:
+        await db.create_document("moderation_logs", {
+            "group_id": group_id or -1001234567890,
+            "user_id": 99999999,
+            "username": username,
+            "action": "deleted",
+            "reason": "Tijoriy reklama / spam aniqlandi",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        })
+        return web.json_response({
+            "allowed": False,
+            "action": "deleted",
+            "reason": "Tijoriy reklama aniqlandi (Anti-Ads)"
+        })
+
+    return web.json_response({
+        "allowed": True,
+        "action": "allowed",
+        "reason": "Xabar xavfsizlik tekshiruvidan muvaffaqiyatli o'tdi"
+    })
+
+
 # --- Static Files & SPA Fallback Handler ---
 
-def get_fallback_login_html() -> str:
+def get_fallback_spa_html() -> str:
     """
-    High-performance built-in Cyber Admin Login UI rendered if dist/index.html is missing.
-    Follows Black + Neon Green cybersecurity aesthetic.
+    Self-contained Cyber Control Center SPA rendered when dist/index.html is not found.
+    Contains both the Super Admin Login Gateway and full Cyber Control Center Dashboard
+    with instant in-memory transitions, tabs, and live API connectivity.
     """
     return """<!doctype html>
 <html lang="uz" class="dark">
@@ -468,13 +543,16 @@ def get_fallback_login_html() -> str:
   <style>
     :root {
       --bg: #05070a;
-      --panel: #0b0f17;
-      --border: #1a2333;
+      --panel: #090d14;
+      --panel-border: #141f2e;
+      --panel-hover: #0f1826;
       --neon: #00ff66;
       --neon-glow: rgba(0, 255, 102, 0.2);
-      --text: #e2e8f0;
-      --text-muted: #64748b;
+      --neon-dim: rgba(0, 255, 102, 0.1);
       --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #f1f5f9;
+      --text-muted: #64748b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -482,24 +560,28 @@ def get_fallback_login_html() -> str:
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
       background-image: 
-        radial-gradient(ellipse at 50% 10%, rgba(0, 255, 102, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 50% 0%, rgba(0, 255, 102, 0.05) 0%, transparent 60%),
         linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
         linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
       background-size: 100% 100%, 32px 32px, 32px 32px;
     }
+    /* Login View Styles */
+    #login-wrapper {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
     .card {
       background: var(--panel);
-      border: 1px solid var(--border);
+      border: 1px solid var(--panel-border);
       border-radius: 12px;
       max-width: 440px;
       width: 100%;
       padding: 32px;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.8), 0 0 20px rgba(0,255,102,0.05);
+      box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 25px var(--neon-glow);
       position: relative;
       overflow: hidden;
     }
@@ -509,10 +591,6 @@ def get_fallback_login_html() -> str:
       top: 0; left: 0; right: 0;
       height: 2px;
       background: linear-gradient(90deg, transparent, var(--neon), transparent);
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 28px;
     }
     .badge {
       display: inline-flex;
@@ -524,7 +602,7 @@ def get_fallback_login_html() -> str:
       letter-spacing: 0.08em;
       text-transform: uppercase;
       font-weight: 600;
-      background: rgba(0,255,102,0.1);
+      background: var(--neon-dim);
       color: var(--neon);
       border: 1px solid rgba(0,255,102,0.25);
       margin-bottom: 12px;
@@ -540,20 +618,9 @@ def get_fallback_login_html() -> str:
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.4; transform: scale(0.85); }
     }
-    h1 {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: #fff;
-    }
-    p.sub {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 6px;
-    }
-    .form-group {
-      margin-bottom: 18px;
-    }
+    h1 { font-size: 20px; font-weight: 700; color: #fff; }
+    p.sub { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+    .form-group { margin-bottom: 18px; }
     label {
       display: block;
       font-size: 11px;
@@ -563,10 +630,10 @@ def get_fallback_login_html() -> str:
       color: var(--text-muted);
       margin-bottom: 6px;
     }
-    input {
+    input, select, textarea {
       width: 100%;
       background: #06090e;
-      border: 1px solid var(--border);
+      border: 1px solid var(--panel-border);
       border-radius: 8px;
       padding: 10px 14px;
       color: #fff;
@@ -575,11 +642,11 @@ def get_fallback_login_html() -> str:
       outline: none;
       transition: all 0.2s;
     }
-    input:focus {
+    input:focus, select:focus, textarea:focus {
       border-color: var(--neon);
       box-shadow: 0 0 12px var(--neon-glow);
     }
-    .btn {
+    .btn-cyber {
       width: 100%;
       background: var(--neon);
       color: #05070a;
@@ -594,14 +661,11 @@ def get_fallback_login_html() -> str:
       transition: all 0.2s;
       margin-top: 8px;
     }
-    .btn:hover {
+    .btn-cyber:hover {
       background: #33ff85;
       box-shadow: 0 0 16px var(--neon-glow);
     }
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    .btn-cyber:disabled { opacity: 0.5; cursor: not-allowed; }
     .status-msg {
       margin-top: 14px;
       padding: 10px 12px;
@@ -617,67 +681,665 @@ def get_fallback_login_html() -> str:
     }
     .status-msg.success {
       display: block;
-      background: rgba(0, 255, 102, 0.1);
+      background: var(--neon-dim);
       border: 1px solid rgba(0, 255, 102, 0.3);
       color: var(--neon);
     }
-    .footer-meta {
-      margin-top: 24px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
+
+    /* Dashboard UI Styles */
+    #dashboard-wrapper { display: none; min-height: 100vh; }
+    header.cyber-nav {
+      background: #080c14;
+      border-bottom: 1px solid var(--panel-border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 0 20px;
+    }
+    .nav-inner {
+      max-width: 1300px;
+      margin: 0 auto;
+      height: 64px;
       display: flex;
+      align-items: center;
       justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #fff;
+    }
+    .brand-tag {
+      font-size: 10px;
+      background: var(--neon-dim);
+      color: var(--neon);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,255,102,0.3);
+    }
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+      overflow-x: auto;
+    }
+    .nav-tab {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .nav-tab:hover { color: #fff; background: var(--panel-hover); }
+    .nav-tab.active {
+      color: var(--neon);
+      background: var(--neon-dim);
+      border: 1px solid rgba(0,255,102,0.25);
+    }
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .user-meta {
+      text-align: right;
+      font-size: 11px;
+    }
+    .user-meta .name { color: var(--neon); font-weight: 600; }
+    .btn-logout {
+      background: #1e1b24;
+      border: 1px solid #3b2a36;
+      color: #f87171;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-logout:hover { background: #331520; }
+    
+    /* Telemetry subbar */
+    .telemetry-bar {
+      background: #06090e;
+      border-bottom: 1px solid var(--panel-border);
+      padding: 8px 20px;
       font-size: 11px;
       color: var(--text-muted);
     }
+    .telemetry-inner {
+      max-width: 1300px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .telemetry-item { display: flex; align-items: center; gap: 6px; }
+    .telemetry-item strong { color: #fff; }
+
+    /* Content Area */
+    main.main-content {
+      max-width: 1300px;
+      margin: 24px auto;
+      padding: 0 20px 40px;
+    }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 20px;
+      position: relative;
+    }
+    .stat-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+    .stat-value { font-size: 28px; font-weight: 800; color: #fff; margin-top: 6px; font-family: monospace; }
+    .stat-sub { font-size: 11px; color: var(--neon); margin-top: 4px; }
+
+    /* Panels & Tables */
+    .cyber-box {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+    .box-title { font-size: 14px; font-weight: 700; color: #fff; text-transform: uppercase; letter-spacing: 0.05em; }
+    
+    table.cyber-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    table.cyber-table th {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--panel-border);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    table.cyber-table td {
+      padding: 12px;
+      border-bottom: 1px solid #111a28;
+    }
+    table.cyber-table tr:hover td {
+      background: var(--panel-hover);
+    }
+    .action-btn {
+      background: #131c2b;
+      border: 1px solid var(--panel-border);
+      color: #cbd5e1;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .action-btn:hover { border-color: var(--neon); color: var(--neon); }
+    .action-btn.danger { color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+    .action-btn.danger:hover { background: rgba(239, 68, 68, 0.15); }
+
+    /* Switch Toggles */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #111a28;
+    }
+    .toggle-info h4 { font-size: 13px; font-weight: 600; color: #fff; }
+    .toggle-info p { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #1e293b; transition: .3s; border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+      background-color: #64748b; transition: .3s; border-radius: 50%;
+    }
+    input:checked + .slider { background-color: var(--neon); }
+    input:checked + .slider:before { transform: translateX(20px); background-color: #05070a; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="header">
-      <div class="badge">
-        <span class="pulse-dot"></span>
-        <span>Secure Cyber Gateway</span>
-      </div>
-      <h1>ANJURX_BOT // COMMAND CENTER</h1>
-      <p class="sub">Enter Super Admin credentials to unlock control protocols</p>
-    </div>
 
-    <div id="statusBox" class="status-msg"></div>
-
-    <form id="loginForm">
-      <div class="form-group">
-        <label>Admin Username</label>
-        <input type="text" id="username" placeholder="usafes" required autocomplete="username">
+  <!-- 1. LOGIN GATEWAY VIEW -->
+  <div id="login-wrapper">
+    <div class="card">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <div class="badge">
+          <span class="pulse-dot"></span>
+          <span>GATEWAY ACTIVE // TLS 1.3</span>
+        </div>
+        <h1>ANJURX_BOT // COMMAND CENTER</h1>
+        <p class="sub">Enter Super Admin credentials to unlock control protocols</p>
       </div>
-      <div class="form-group">
-        <label>Password / Security Key</label>
-        <input type="password" id="password" placeholder="••••••••••••" required autocomplete="current-password">
-      </div>
-      <button type="submit" id="submitBtn" class="btn">AUTHENTICATE PROTOCOL</button>
-    </form>
 
-    <div class="footer-meta">
-      <span>PROTOCOL: AES-256</span>
-      <span>SUPER ADMIN: @usafes</span>
+      <div id="statusBox" class="status-msg"></div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label>Admin Username</label>
+          <input type="text" id="username" value="usafes" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label>Password / Security Key</label>
+          <input type="password" id="password" placeholder="••••••••••••" required autocomplete="current-password">
+        </div>
+        <button type="submit" id="submitBtn" class="btn-cyber">AUTHENTICATE PROTOCOL</button>
+      </form>
+
+      <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--panel-border); display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted);">
+        <span>ID: 8157452043</span>
+        <span>SUPER ADMIN: @usafes</span>
+      </div>
     </div>
   </div>
 
-  <script>
-    const form = document.getElementById('loginForm');
-    const statusBox = document.getElementById('statusBox');
-    const btn = document.getElementById('submitBtn');
+  <!-- 2. CYBER CONTROL CENTER DASHBOARD VIEW -->
+  <div id="dashboard-wrapper">
+    <header class="cyber-nav">
+      <div class="nav-inner">
+        <div class="brand">
+          <span class="pulse-dot"></span>
+          <span>ANJURX_BOT</span>
+          <span class="brand-tag">v2.4.0 CYBER</span>
+        </div>
 
-    form.addEventListener('submit', async (e) => {
+        <nav class="nav-tabs">
+          <button class="nav-tab active" onclick="switchTab('tab-dashboard')">⚡ Boshqaruv</button>
+          <button class="nav-tab" onclick="switchTab('tab-guard')">🛡️ Guruhlar & Qorovul</button>
+          <button class="nav-tab" onclick="switchTab('tab-users')">👥 Foydalanuvchilar</button>
+          <button class="nav-tab" onclick="switchTab('tab-logs')">📜 Xavfsizlik Jurnali</button>
+          <button class="nav-tab" onclick="switchTab('tab-fsub')">📢 Majburiy Obuna</button>
+          <button class="nav-tab" onclick="switchTab('tab-simulator')">🧪 Xabar Sinovchi</button>
+        </nav>
+
+        <div class="user-pill">
+          <div class="user-meta">
+            <div class="name">@usafes</div>
+            <div style="color: var(--text-muted);">Super Admin</div>
+          </div>
+          <button class="btn-logout" onclick="logoutSession()">Chiqish</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Telemetry Bar -->
+    <div class="telemetry-bar">
+      <div class="telemetry-inner">
+        <div class="telemetry-item">
+          <span class="pulse-dot"></span>
+          <span>Holat: <strong id="telemetry-bot" style="color: var(--neon);">POLLING RUNNING</strong></span>
+        </div>
+        <div class="telemetry-item">
+          <span>Firestore: <strong id="telemetry-fb" style="color: var(--neon);">ULANGAN</strong></span>
+        </div>
+        <div class="telemetry-item">
+          <span>Uptime: <strong id="telemetry-uptime">0s</strong></span>
+        </div>
+        <div class="telemetry-item">
+          <span>Super Admin ID: <strong style="color: var(--neon);">8157452043</strong></span>
+        </div>
+        <button class="action-btn" onclick="loadAllData()" style="padding: 2px 8px;">🔄 Yangilash</button>
+      </div>
+    </div>
+
+    <main class="main-content">
+      <!-- TAB 1: DASHBOARD -->
+      <div id="tab-dashboard" class="tab-pane active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Jami Foydalanuvchilar</div>
+            <div class="stat-value" id="stat-users">0</div>
+            <div class="stat-sub">Auditdan o'tganlar</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Faol Guruhlar</div>
+            <div class="stat-value" id="stat-groups">0</div>
+            <div class="stat-sub">Qorovul himoyasida</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Bloklangan Spam</div>
+            <div class="stat-value" id="stat-spam" style="color: var(--warning);">0</div>
+            <div class="stat-sub">Avtomatik bartaraf etildi</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">O'chirilgan Havolalar</div>
+            <div class="stat-value" id="stat-links" style="color: #f87171;">0</div>
+            <div class="stat-sub">Ruxsatsiz reklamalar</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div class="cyber-box">
+            <div class="box-header">
+              <span class="box-title">Guruhlar Monitoringi</span>
+              <button class="action-btn" onclick="switchTab('tab-guard')">Barchasini sozlash</button>
+            </div>
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Guruh</th>
+                  <th>A'zolar</th>
+                  <th>Qorovul</th>
+                </tr>
+              </thead>
+              <tbody id="dash-groups-body">
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Yuklanmoqda...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="cyber-box">
+            <div class="box-header">
+              <span class="box-title">So'nggi Xavfsizlik Voqealari</span>
+              <button class="action-btn" onclick="switchTab('tab-logs')">Barcha jurnallar</button>
+            </div>
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Foydalanuvchi</th>
+                  <th>Sabab</th>
+                  <th>Chora</th>
+                </tr>
+              </thead>
+              <tbody id="dash-logs-body">
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Yuklanmoqda...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: GROUPS & GUARD -->
+      <div id="tab-guard" class="tab-pane">
+        <div class="cyber-box">
+          <div class="box-header">
+            <span class="box-title">Guruh Tanlang va Qorovul Qoidalarini Sozlang</span>
+            <select id="guard-group-select" style="max-width: 320px;" onchange="onGuardGroupSelected()"></select>
+          </div>
+
+          <div id="guard-settings-container">
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Qorovul Tizimi (Master Guard)</h4>
+                <p>Ushbu guruhda barcha avtomatlashtirilgan xavfsizlik choralarini faollashtirish</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-enabled"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Anti-Spam Himoyasi</h4>
+                <p>Takroriy va shubhali xabarlarni avtomatik o'chirish va cheklash</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-antispam"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Anti-Flood Himoyasi</h4>
+                <p>Tezkor ketma-ket xabar tashlash oqimini jilovlash</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-antiflood"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Anti-Link (Havolalarni O'chirish)</h4>
+                <p>Telegram kanallari, guruhlar va tashqi web linklarni tozalash</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-antilink"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Anti-Ads (Tijoriy Reklamalar Filtri)</h4>
+                <p>Moliyaviy sxemalar, kripto va savdo reklamalarini yo'q qilish</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-antiads"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>So'kinish va Uyatsiz So'zlar Filtri</h4>
+                <p>O'zbek, rus va xalqaro haqoratli so'zlarni darhol jazolash</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-badwords"><span class="slider"></span></label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-info">
+                <h4>Yangi A'zolar Xabarlarini Tozalash</h4>
+                <p>"Falonchi guruhga qo'shildi" servis xabarlarini avtomatik tozalash</p>
+              </div>
+              <label class="switch"><input type="checkbox" id="g-newmember"><span class="slider"></span></label>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px;">
+              <div class="form-group">
+                <label>Flood Cheklovi (Xabarlar soni)</label>
+                <input type="number" id="g-flood-limit" value="5">
+              </div>
+              <div class="form-group">
+                <label>Flood Oynasi (Soniya)</label>
+                <input type="number" id="g-flood-window" value="5">
+              </div>
+              <div class="form-group">
+                <label>Mute Muddati (Soniya)</label>
+                <input type="number" id="g-mute-duration" value="300">
+              </div>
+            </div>
+
+            <button class="btn-cyber" onclick="saveGuardSettings()" style="margin-top: 10px;">SOZLAMALARNI SAQLASH</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: USERS -->
+      <div id="tab-users" class="tab-pane">
+        <div class="cyber-box">
+          <div class="box-header">
+            <span class="box-title">Telegram Foydalanuvchilari Audit Jadvali</span>
+            <input type="text" id="user-search-input" placeholder="Qidirish: ID yoki Username..." style="max-width: 280px;" oninput="onUserSearch(this.value)">
+          </div>
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Foydalanuvchi ID</th>
+                <th>Username</th>
+                <th>Ism</th>
+                <th>Ogohlantirishlar</th>
+                <th>Holat</th>
+                <th>Amal</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB 4: MODERATION LOGS -->
+      <div id="tab-logs" class="tab-pane">
+        <div class="cyber-box">
+          <div class="box-header">
+            <span class="box-title">Xavfsizlik va Qorovul Jurnallari</span>
+            <span style="font-size: 11px; color: var(--text-muted);">Oxirgi 100 ta voqea</span>
+          </div>
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Vaqt</th>
+                <th>Foydalanuvchi</th>
+                <th>Guruh ID</th>
+                <th>Sabab</th>
+                <th>Ko'rilgan Chora</th>
+              </tr>
+            </thead>
+            <tbody id="logs-table-body">
+              <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Yuklanmoqda...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB 5: FORCE SUBSCRIBE -->
+      <div id="tab-fsub" class="tab-pane">
+        <div class="cyber-box">
+          <div class="box-header">
+            <span class="box-title">Majburiy Obuna Kanallarini Biriktirish</span>
+            <select id="fsub-group-select" style="max-width: 320px;" onchange="onFSubGroupSelected()"></select>
+          </div>
+
+          <div style="margin-bottom: 24px;">
+            <h4 style="font-size: 13px; color: #fff; margin-bottom: 12px;">Biriktirilgan Kanallar Ro'yxati</h4>
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Kanal ID</th>
+                  <th>Username</th>
+                  <th>Sarlavha</th>
+                  <th>Havola</th>
+                  <th>Amal</th>
+                </tr>
+              </thead>
+              <tbody id="fsub-table-body">
+                <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Biriktirilgan kanallar mavjud emas</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background: #06090e; padding: 20px; border-radius: 8px; border: 1px solid var(--panel-border);">
+            <h4 style="font-size: 13px; color: var(--neon); margin-bottom: 14px;">+ Yangi Majburiy Kanal Qo'shish</h4>
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
+              <div class="form-group">
+                <label>Kanal ID (masalan: -100192837465)</label>
+                <input type="text" id="fsub-new-id" placeholder="-1001234567890">
+              </div>
+              <div class="form-group">
+                <label>Kanal Username</label>
+                <input type="text" id="fsub-new-username" placeholder="@kanal_nomi">
+              </div>
+              <div class="form-group">
+                <label>Kanal Sarlavhasi</label>
+                <input type="text" id="fsub-new-title" placeholder="Rasmiy Kanal">
+              </div>
+              <div class="form-group">
+                <label>Taklif Havolasi (Invite link)</label>
+                <input type="text" id="fsub-new-link" placeholder="https://t.me/kanal_nomi">
+              </div>
+            </div>
+            <button class="btn-cyber" onclick="addFSubChannel()" style="max-width: 240px;">KANALNI BIRIKTIRISH</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 6: SIMULATOR -->
+      <div id="tab-simulator" class="tab-pane">
+        <div class="cyber-box" style="max-width: 700px; margin: 0 auto;">
+          <div class="box-header">
+            <span class="box-title">Qorovul Qoidalarini Jonli Sinovdan O'tkazish</span>
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">
+            Guruhga yuboriladigan xabarni test qiling. Tizim uni faol Anti-Spam, Anti-Link va So'kinish filtri orqali sinovdan o'tkazib darhol javob beradi.
+          </p>
+
+          <div class="form-group">
+            <label>Guruhni Tanlang</label>
+            <select id="sim-group-select"></select>
+          </div>
+          <div class="form-group">
+            <label>Test Foydalanuvchi Username</label>
+            <input type="text" id="sim-username" value="test_user">
+          </div>
+          <div class="form-group">
+            <label>Xabar Matni</label>
+            <textarea id="sim-text" rows="3" placeholder="Sinov xabarini kiriting (masalan havola, so'kinish yoki oddiy gap)..."></textarea>
+          </div>
+          <button class="btn-cyber" onclick="simulateTestMessage()">XABARNI TEKSHIRISH</button>
+
+          <div id="sim-result-box" style="display: none; margin-top: 20px; padding: 16px; border-radius: 8px;"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // State Store
+    let appState = {
+      authenticated: false,
+      groups: [],
+      users: [],
+      logs: [],
+      stats: {},
+      selectedGroupId: null
+    };
+
+    function getAuthHeaders() {
+      const token = localStorage.getItem('anjurx_token') || '';
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': token ? ('Bearer ' + token) : ''
+      };
+    }
+
+    // App Initialization
+    async function initApp() {
+      const token = localStorage.getItem('anjurx_token');
+      try {
+        const res = await fetch('/api/auth/session', {
+          headers: getAuthHeaders(),
+          credentials: 'include'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            showDashboard();
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Session check failed', e);
+      }
+      showLogin();
+    }
+
+    function showLogin() {
+      document.getElementById('login-wrapper').style.display = 'flex';
+      document.getElementById('dashboard-wrapper').style.display = 'none';
+      if (window.location.pathname === '/admin') {
+        window.history.pushState(null, '', '/');
+      }
+    }
+
+    function showDashboard() {
+      document.getElementById('login-wrapper').style.display = 'none';
+      document.getElementById('dashboard-wrapper').style.display = 'block';
+      if (window.location.pathname !== '/admin') {
+        window.history.pushState(null, '', '/admin');
+      }
+      loadAllData();
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+      const target = document.getElementById(tabId);
+      if (target) target.classList.add('active');
+      event?.target?.classList?.add('active');
+    }
+
+    // Login Form Submission
+    const loginForm = document.getElementById('loginForm');
+    const statusBox = document.getElementById('statusBox');
+    const submitBtn = document.getElementById('submitBtn');
+
+    loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       statusBox.style.display = 'none';
-      btn.disabled = true;
-      btn.innerText = 'VERIFYING CREDENTIALS...';
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'VERIFYING CREDENTIALS...';
 
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             username: document.getElementById('username').value.trim(),
             password: document.getElementById('password').value
@@ -692,25 +1354,345 @@ def get_fallback_login_html() -> str:
             statusBox.innerText = data.error || 'Access Denied: Invalid credentials.';
           }
           statusBox.style.display = 'block';
-          btn.disabled = false;
-          btn.innerText = 'AUTHENTICATE PROTOCOL';
+          submitBtn.disabled = false;
+          submitBtn.innerText = 'AUTHENTICATE PROTOCOL';
         } else {
+          if (data.token) {
+            localStorage.setItem('anjurx_token', data.token);
+          }
           statusBox.className = 'status-msg success';
           statusBox.innerText = 'ACCESS GRANTED. INITIALIZING DASHBOARD...';
           statusBox.style.display = 'block';
-          btn.innerText = 'ACCESS GRANTED';
+          submitBtn.innerText = 'ACCESS GRANTED';
+
           setTimeout(() => {
-            window.location.href = '/admin';
-          }, 800);
+            showDashboard();
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'AUTHENTICATE PROTOCOL';
+          }, 400);
         }
       } catch (err) {
         statusBox.className = 'status-msg error';
         statusBox.innerText = 'Connection error with gateway: ' + err.message;
         statusBox.style.display = 'block';
-        btn.disabled = false;
-        btn.innerText = 'AUTHENTICATE PROTOCOL';
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'AUTHENTICATE PROTOCOL';
       }
     });
+
+    async function logoutSession() {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          credentials: 'include'
+        });
+      } catch (e) {}
+      localStorage.removeItem('anjurx_token');
+      showLogin();
+    }
+
+    // Data Loaders
+    async function loadAllData() {
+      await Promise.all([loadStats(), loadGroups(), loadUsers(), loadLogs()]);
+    }
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/admin/dashboard', { headers: getAuthHeaders(), credentials: 'include' });
+        if (res.ok) {
+          const d = await res.json();
+          appState.stats = d;
+          document.getElementById('stat-users').innerText = d.total_users || 0;
+          document.getElementById('stat-groups').innerText = d.total_groups || 0;
+          document.getElementById('stat-spam').innerText = d.spam_blocked || 0;
+          document.getElementById('stat-links').innerText = d.links_deleted || 0;
+          document.getElementById('telemetry-uptime').innerText = Math.round(d.uptime_seconds || 0) + 's';
+          if (d.bot_status) {
+            document.getElementById('telemetry-bot').innerText = d.bot_status.toUpperCase();
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function loadGroups() {
+      try {
+        const res = await fetch('/api/admin/groups', { headers: getAuthHeaders(), credentials: 'include' });
+        if (res.ok) {
+          const d = await res.json();
+          appState.groups = d.groups || [];
+          renderDashboardGroups();
+          renderGroupSelectors();
+          onGuardGroupSelected();
+          onFSubGroupSelected();
+        }
+      } catch (e) {}
+    }
+
+    function renderDashboardGroups() {
+      const tbody = document.getElementById('dash-groups-body');
+      if (!appState.groups.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">Guruhlar mavjud emas</td></tr>';
+        return;
+      }
+      tbody.innerHTML = appState.groups.slice(0, 8).map(g => `
+        <tr>
+          <td><strong>${g.title || 'Guruh ' + g.group_id}</strong><div style="font-size:10px; color:var(--text-muted);">${g.group_id}</div></td>
+          <td>${g.members_count || 0}</td>
+          <td><span style="color: ${g.guard && g.guard.enabled ? 'var(--neon)' : 'var(--danger)'}; font-weight:600;">
+            ${g.guard && g.guard.enabled ? 'FAOL' : 'O\'CHIK'}
+          </span></td>
+        </tr>
+      `).join('');
+    }
+
+    function renderGroupSelectors() {
+      const options = appState.groups.map(g => `<option value="${g._id || g.group_id}">${g.title || 'Guruh ' + g.group_id}</option>`).join('');
+      document.getElementById('guard-group-select').innerHTML = options;
+      document.getElementById('fsub-group-select').innerHTML = options;
+      document.getElementById('sim-group-select').innerHTML = options;
+    }
+
+    function onGuardGroupSelected() {
+      const val = document.getElementById('guard-group-select').value;
+      const group = appState.groups.find(g => (g._id === val || String(g.group_id) === val));
+      if (!group) return;
+      const guard = group.guard || {};
+      document.getElementById('g-enabled').checked = Boolean(guard.enabled);
+      document.getElementById('g-antispam').checked = Boolean(guard.anti_spam);
+      document.getElementById('g-antiflood').checked = Boolean(guard.anti_flood);
+      document.getElementById('g-antilink').checked = Boolean(guard.anti_link);
+      document.getElementById('g-antiads').checked = Boolean(guard.anti_ads);
+      document.getElementById('g-badwords').checked = Boolean(guard.bad_words);
+      document.getElementById('g-newmember').checked = Boolean(guard.new_member_protection);
+      document.getElementById('g-flood-limit').value = guard.flood_limit || 5;
+      document.getElementById('g-flood-window').value = guard.flood_window || 5;
+      document.getElementById('g-mute-duration').value = guard.mute_duration || 300;
+    }
+
+    async function saveGuardSettings() {
+      const val = document.getElementById('guard-group-select').value;
+      const body = {
+        enabled: document.getElementById('g-enabled').checked,
+        anti_spam: document.getElementById('g-antispam').checked,
+        anti_flood: document.getElementById('g-antiflood').checked,
+        anti_link: document.getElementById('g-antilink').checked,
+        anti_ads: document.getElementById('g-antiads').checked,
+        bad_words: document.getElementById('g-badwords').checked,
+        new_member_protection: document.getElementById('g-newmember').checked,
+        flood_limit: Number(document.getElementById('g-flood-limit').value),
+        flood_window: Number(document.getElementById('g-flood-window').value),
+        mute_duration: Number(document.getElementById('g-mute-duration').value)
+      };
+      try {
+        const res = await fetch('/api/admin/groups/' + val + '/guard', {
+          method: 'PUT',
+          headers: getAuthHeaders(),
+          credentials: 'include',
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          alert('Qorovul sozlamalari muvaffaqiyatli saqlandi!');
+          loadGroups();
+        } else {
+          alert('Xatolik yuz berdi!');
+        }
+      } catch (e) { alert('Tarmoq xatosi: ' + e.message); }
+    }
+
+    async function loadUsers(search = '') {
+      try {
+        const query = new URLSearchParams({ limit: '50', search });
+        const res = await fetch('/api/admin/users?' + query, { headers: getAuthHeaders(), credentials: 'include' });
+        if (res.ok) {
+          const d = await res.json();
+          appState.users = d.users || [];
+          renderUsersTable();
+        }
+      } catch (e) {}
+    }
+
+    function renderUsersTable() {
+      const tbody = document.getElementById('users-table-body');
+      if (!appState.users.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Foydalanuvchilar topilmadi</td></tr>';
+        return;
+      }
+      tbody.innerHTML = appState.users.map(u => `
+        <tr>
+          <td><span style="font-family:monospace; color:var(--neon);">${u.user_id}</span></td>
+          <td>${u.username ? '@' + u.username : '-'}</td>
+          <td>${(u.first_name || '') + ' ' + (u.last_name || '')}</td>
+          <td><span style="color: ${u.warnings_count > 0 ? 'var(--warning)' : 'inherit'}; font-weight:600;">${u.warnings_count || 0}</span></td>
+          <td><span style="color:${u.is_banned ? 'var(--danger)' : 'var(--neon)'};">${u.is_banned ? 'BLOKLANGAN' : 'FAOL'}</span></td>
+          <td><button class="action-btn" onclick="clearUserWarns(${u.user_id})">Tozalash</button></td>
+        </tr>
+      `).join('');
+    }
+
+    function onUserSearch(val) {
+      loadUsers(val.trim());
+    }
+
+    async function clearUserWarns(userId) {
+      if (!confirm('Foydalanuvchi ' + userId + ' ogohlantirishlari 0 ga tushirilsinmi?')) return;
+      try {
+        const res = await fetch('/api/admin/logs/clearwarns', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          credentials: 'include',
+          body: JSON.stringify({ user_id: userId })
+        });
+        if (res.ok) {
+          loadUsers();
+          loadLogs();
+        }
+      } catch (e) {}
+    }
+
+    async function loadLogs() {
+      try {
+        const res = await fetch('/api/admin/logs', { headers: getAuthHeaders(), credentials: 'include' });
+        if (res.ok) {
+          const d = await res.json();
+          appState.logs = d.logs || [];
+          renderLogs();
+        }
+      } catch (e) {}
+    }
+
+    function renderLogs() {
+      const dashBody = document.getElementById('dash-logs-body');
+      const tableBody = document.getElementById('logs-table-body');
+      if (!appState.logs.length) {
+        const emptyRow = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Voqealar mavjud emas</td></tr>';
+        dashBody.innerHTML = emptyRow;
+        tableBody.innerHTML = emptyRow;
+        return;
+      }
+      dashBody.innerHTML = appState.logs.slice(0, 8).map(l => `
+        <tr>
+          <td><strong>${l.username ? '@' + l.username : l.user_id}</strong></td>
+          <td style="font-size:11px; color:var(--text-muted);">${l.reason || 'Xavfsizlik qoidasi'}</td>
+          <td><span style="color:var(--warning); font-weight:600;">${(l.action || 'warned').toUpperCase()}</span></td>
+        </tr>
+      `).join('');
+
+      tableBody.innerHTML = appState.logs.map(l => `
+        <tr>
+          <td style="color:var(--text-muted);">${new Date(l.timestamp || Date.now()).toLocaleTimeString()}</td>
+          <td><strong>${l.username ? '@' + l.username : l.user_id}</strong></td>
+          <td>${l.group_id}</td>
+          <td>${l.reason || 'Qoidabuzarlik'}</td>
+          <td><span style="color:var(--neon); font-weight:600;">${(l.action || 'warned').toUpperCase()}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    function onFSubGroupSelected() {
+      const val = document.getElementById('fsub-group-select').value;
+      const group = appState.groups.find(g => (g._id === val || String(g.group_id) === val));
+      const tbody = document.getElementById('fsub-table-body');
+      if (!group || !group.fsub_channels || !group.fsub_channels.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Biriktirilgan kanallar mavjud emas</td></tr>';
+        return;
+      }
+      tbody.innerHTML = group.fsub_channels.map(c => `
+        <tr>
+          <td>${c.channel_id}</td>
+          <td>${c.username ? '@' + c.username : '-'}</td>
+          <td>${c.title || 'Kanal'}</td>
+          <td><a href="${c.invite_link}" target="_blank" style="color:var(--neon);">${c.invite_link}</a></td>
+          <td><button class="action-btn danger" onclick="removeFSubChannel('${group._id || group.group_id}', '${c.channel_id}')">O'chirish</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function addFSubChannel() {
+      const groupId = document.getElementById('fsub-group-select').value;
+      const chId = document.getElementById('fsub-new-id').value.trim();
+      const username = document.getElementById('fsub-new-username').value.trim();
+      const title = document.getElementById('fsub-new-title').value.trim();
+      const link = document.getElementById('fsub-new-link').value.trim();
+      if (!chId) { alert('Kanal ID kiritilishi shart'); return; }
+
+      try {
+        const res = await fetch('/api/admin/groups/' + groupId + '/fsub', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          credentials: 'include',
+          body: JSON.stringify({
+            channel_id: chId,
+            username: username.replace(/^@/, ''),
+            title: title || 'Kanal',
+            invite_link: link || (username ? 'https://t.me/' + username.replace(/^@/, '') : '')
+          })
+        });
+        if (res.ok) {
+          alert('Kanal biriktirildi!');
+          document.getElementById('fsub-new-id').value = '';
+          document.getElementById('fsub-new-username').value = '';
+          document.getElementById('fsub-new-title').value = '';
+          document.getElementById('fsub-new-link').value = '';
+          loadGroups();
+        }
+      } catch (e) { alert('Xatolik: ' + e.message); }
+    }
+
+    async function removeFSubChannel(groupId, channelId) {
+      if (!confirm('Ushbu kanal majburiy obunadan chiqarilsinmi?')) return;
+      try {
+        const res = await fetch('/api/admin/groups/' + groupId + '/fsub/' + channelId, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+          credentials: 'include'
+        });
+        if (res.ok) loadGroups();
+      } catch (e) {}
+    }
+
+    async function simulateTestMessage() {
+      const gid = document.getElementById('sim-group-select').value;
+      const user = document.getElementById('sim-username').value.trim();
+      const text = document.getElementById('sim-text').value.trim();
+      if (!text) { alert('Sinov xabarini kiriting'); return; }
+
+      const box = document.getElementById('sim-result-box');
+      box.style.display = 'block';
+      box.innerHTML = 'Tekshirilmoqda...';
+
+      try {
+        const res = await fetch('/api/bot/simulate', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          credentials: 'include',
+          body: JSON.stringify({
+            group_id: Number(gid) || -1001234567890,
+            username: user,
+            message_text: text
+          })
+        });
+        const d = await res.json();
+        if (d.allowed) {
+          box.style.background = 'var(--neon-dim)';
+          box.style.border = '1px solid var(--neon)';
+          box.style.color = 'var(--neon)';
+          box.innerHTML = '<strong>[RUXSAT BERILDI]</strong> ' + (d.reason || 'Xabar xavfsiz deb topildi.');
+        } else {
+          box.style.background = 'rgba(239, 68, 68, 0.15)';
+          box.style.border = '1px solid var(--danger)';
+          box.style.color = '#fca5a5';
+          box.innerHTML = '<strong>[BLOKLANDI // ' + (d.action || 'BLOCKED').toUpperCase() + ']</strong> ' + (d.reason || 'Xavfsizlik qoidasi buzildi');
+        }
+        loadLogs();
+        loadStats();
+      } catch (e) {
+        box.innerHTML = 'Tarmoq xatosi: ' + e.message;
+      }
+    }
+
+    // Initialize on DOM Ready
+    document.addEventListener('DOMContentLoaded', initApp);
   </script>
 </body>
 </html>"""
@@ -718,8 +1700,8 @@ def get_fallback_login_html() -> str:
 
 async def handle_spa_fallback(request: web.Request) -> web.Response:
     """
-    Renders React SPA entry point or built-in Cyber Login page.
-    Directly serves dist/index.html if built, otherwise serves the embedded Cyber Login page.
+    Renders React SPA entry point or built-in Cyber Control Center SPA.
+    Directly serves dist/index.html if built, otherwise serves the embedded Cyber SPA.
     """
     dist_index = os.path.join(os.getcwd(), "dist", "index.html")
     if os.path.exists(dist_index):
@@ -730,7 +1712,7 @@ async def handle_spa_fallback(request: web.Request) -> web.Response:
         except Exception as e:
             logger.error(f"Error serving dist/index.html: {e}")
 
-    return web.Response(text=get_fallback_login_html(), content_type="text/html")
+    return web.Response(text=get_fallback_spa_html(), content_type="text/html")
 
 
 def create_web_app() -> web.Application:
@@ -765,6 +1747,7 @@ def create_web_app() -> web.Application:
     app.router.add_post("/api/admin/logs/clearwarns", handle_admin_clear_warns)
     app.router.add_post("/api/moderation/clearwarns", handle_admin_clear_warns)
     app.router.add_get("/api/admin/system", handle_admin_system)
+    app.router.add_post("/api/bot/simulate", handle_bot_simulate)
 
     # 4. Static assets serving (dist/assets, icons, etc.)
     dist_path = os.path.join(os.getcwd(), "dist")

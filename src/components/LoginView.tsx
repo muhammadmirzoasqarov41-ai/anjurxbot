@@ -54,10 +54,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         }
       } else {
         // Access Granted!
+        if (data.token) {
+          localStorage.setItem('anjurx_token', data.token);
+        }
+        if (data.user) {
+          localStorage.setItem('anjurx_user', JSON.stringify(data.user));
+        }
         setAccessGranted(true);
         setTimeout(() => {
           onLoginSuccess();
-        }, 900);
+        }, 600);
       }
     } catch (err: any) {
       setError('Gateway connection error. Ensure server is active.');
