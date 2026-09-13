@@ -22,9 +22,8 @@ logger = logging.getLogger("anjurxbot.config")
 class Config:
     bot_token: str = field(default_factory=lambda: os.getenv("BOT_TOKEN", "").strip())
     bot_username: str = field(default_factory=lambda: os.getenv("BOT_USERNAME", "").strip())
-    super_admin_id: Optional[int] = 8157452043
-    admin_ids: List[int] = field(default_factory=lambda: [8157452043])
-    admin_usernames: List[str] = field(default_factory=lambda: ["usafes"])
+    super_admin_id: Optional[int] = None
+    admin_ids: List[int] = field(default_factory=list)
     firebase_service_account: Optional[dict] = None
     firebase_project_id: str = field(
         default_factory=lambda: os.getenv("FIREBASE_PROJECT_ID", "anjurxbot").strip() or "anjurxbot"
@@ -42,31 +41,40 @@ class Config:
     database_path: str = field(default_factory=lambda: os.getenv("DATABASE_PATH", "./data/rssbot.json").strip())
 
     def __post_init__(self):
-        # Parse Admin IDs (support SUPER_ADMIN_ID, ADMIN_IDS, and ADMIN_ID)
-        raw_super_admin = os.getenv("SUPER_ADMIN_ID", "8157452043").strip()
-        raw_admin_ids = os.getenv("ADMIN_IDS", "8157452043").strip()
-        raw_single_admin = os.getenv("ADMIN_ID", "8157452043").strip()
-        parsed_ids = [8157452043]
-        for val in [raw_super_admin, raw_admin_ids, raw_single_admin]:
+        # 1. Parse SUPER_ADMIN_ID strictly as numeric integer
+        raw_super_admin = os.getenv("SUPER_ADMIN_ID", "").strip()
+        parsed_super_admin: Optional[int] = None
+        if raw_super_admin:
+            try:
+                parsed_super_admin = int(raw_super_admin)
+                logger.info("SUPER_ADMIN_ID is configured and parsed successfully.")
+            except ValueError:
+                logger.error(
+                    f"error_type=ConfigError message=SUPER_ADMIN_ID '{raw_super_admin}' is invalid! Must be numeric Telegram user ID."
+                )
+        else:
+            logger.info("SUPER_ADMIN_ID is not configured in environment.")
+
+        # 2. Parse additional ADMIN_IDS / ADMIN_ID if provided
+        raw_admin_ids = os.getenv("ADMIN_IDS", "").strip()
+        raw_single_admin = os.getenv("ADMIN_ID", "").strip()
+        parsed_admin_ids: List[int] = []
+        if parsed_super_admin is not None:
+            parsed_admin_ids.append(parsed_super_admin)
+
+        for val in [raw_admin_ids, raw_single_admin]:
             if val:
                 for item in val.split(","):
                     clean = item.strip()
-                    if clean.isdigit() or (clean.startswith("-") and clean[1:].isdigit()):
-                        parsed_ids.append(int(clean))
-        self.admin_ids = list(dict.fromkeys(parsed_ids))
-        self.super_admin_id = self.admin_ids[0] if self.admin_ids else 8157452043
-
-        # Parse Admin Usernames (support both ADMIN_USERNAMES and ADMIN_USERNAME)
-        raw_admin_usernames = os.getenv("ADMIN_USERNAMES", "").strip()
-        raw_single_username = os.getenv("ADMIN_USERNAME", "usafes").strip()
-        parsed_un = ["usafes"]
-        for val in [raw_admin_usernames, raw_single_username]:
-            if val:
-                for item in val.split(","):
-                    clean = item.strip().lstrip("@").lower()
                     if clean:
-                        parsed_un.append(clean)
-        self.admin_usernames = list(dict.fromkeys(parsed_un))
+                        try:
+                            clean_int = int(clean)
+                            parsed_admin_ids.append(clean_int)
+                        except ValueError:
+                            logger.warning(f"Skipping invalid admin ID value in env: '{clean}'")
+
+        self.admin_ids = list(dict.fromkeys(parsed_admin_ids))
+        self.super_admin_id = parsed_super_admin or (self.admin_ids[0] if self.admin_ids else None)
 
         # Parse Firebase Service Account
         raw_sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
@@ -135,19 +143,23 @@ class Config:
     def is_super_admin(self, user_id: Optional[int]) -> bool:
         """
         Strict ID-based check for Super Admin.
-        Security rule: Super Admin access is granted solely by Telegram User ID, never by username.
+        Security rule: Super Admin access is granted solely by Telegram numeric User ID, never by username.
+        Telegram username changing does NOT revoke super-admin rights.
         """
         if user_id is None:
             return False
-        if self.super_admin_id and user_id == self.super_admin_id:
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            return False
+
+        if self.super_admin_id is not None and uid == self.super_admin_id:
             return True
-        return user_id in self.admin_ids
+        return uid in self.admin_ids
 
     def is_admin(self, user_id: Optional[int] = None, username: Optional[str] = None) -> bool:
-        """Strictly ID-based check for Super Admin. Usernames are never used for privilege checks."""
-        if user_id is not None and user_id in self.admin_ids:
-            return True
-        return False
+        """Strict ID-based authorization helper. Usernames are never used for privilege checks."""
+        return self.is_super_admin(user_id)
 
     def has_token(self) -> bool:
         return bool(self.bot_token and len(self.bot_token) > 10)

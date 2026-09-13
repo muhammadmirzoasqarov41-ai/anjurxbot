@@ -13,6 +13,8 @@ from app.middlewares.dedup import DedupMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
 
 from app.handlers.start import router as start_router
+from app.handlers.admin import router as admin_router
+from app.handlers.channels import router as channels_router
 from app.handlers.rss import router as rss_router
 from app.handlers.errors import router as errors_router
 
@@ -61,8 +63,10 @@ def create_dispatcher() -> Dispatcher:
     dp.message.middleware(RateLimitMiddleware())
     dp.callback_query.middleware(RateLimitMiddleware())
 
-    # 3. Handlers routers for RSS Bot
+    # 3. Handlers routers for RSS Bot & Channel Aggregator
     dp.include_router(start_router)
+    dp.include_router(admin_router)
+    dp.include_router(channels_router)
     dp.include_router(rss_router)
     dp.include_router(errors_router)
 

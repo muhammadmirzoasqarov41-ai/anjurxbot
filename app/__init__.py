@@ -1,5 +1,5 @@
 """
-AnjurXBot - Telegram Guruhingizning Qorovuli (Group Guard & Protection System)
+AnjurX | Rss Bot - Professional Telegram RSS & Channel Content Aggregator
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"

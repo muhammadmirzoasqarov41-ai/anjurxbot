@@ -12,15 +12,17 @@ logger = logging.getLogger("anjurxbot.commands")
 async def setup_bot_commands(bot: Bot):
     """Sets standard BotFather command menu in Telegram clients."""
     user_commands = [
-        BotCommand(command="start", description="Botni ishga tushirish va ma'lumot"),
+        BotCommand(command="start", description="Bosh menyuni ochish"),
+        BotCommand(command="help", description="Qo‘llanma va yordam"),
         BotCommand(command="sub", description="Yangi RSS feedga obuna bo'lish: /sub <url>"),
         BotCommand(command="unsub", description="Obunani bekor qilish"),
-        BotCommand(command="rss", description="Obunalar ro'yxati (/rss yoki /rss raw)"),
-        BotCommand(command="export", description="Obunalarni OPML fayl sifatida eksport qilish"),
+        BotCommand(command="rss", description="Obunalar ro'yxati"),
+        BotCommand(command="export", description="Obunalarni OPML formatida eksport qilish"),
         BotCommand(command="allunsub", description="Barcha obunalarni o'chirish"),
     ]
 
     admin_commands = [
+        BotCommand(command="admin", description="Super Admin Panel"),
         BotCommand(command="sub", description="Guruh/kanal uchun RSS obuna qo'shish"),
         BotCommand(command="unsub", description="Obunani o'chirish"),
         BotCommand(command="rss", description="Faol obunalar"),

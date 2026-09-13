@@ -288,11 +288,20 @@ async def start_telegram_polling(bot: Bot, dp: Dispatcher):
         logger.warning(f"Error during bot initialization: {e}")
 
     backoff = 2
+    allowed_updates = [
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "callback_query",
+        "my_chat_member",
+        "chat_member",
+    ]
     while True:
         try:
             health_service.update_heartbeat()
-            logger.info("Aiogram 3 polling loop active.")
-            await dp.start_polling(bot, handle_signals=False)
+            logger.info("Aiogram 3 polling loop active with channel aggregation updates.")
+            await dp.start_polling(bot, allowed_updates=allowed_updates, handle_signals=False)
             break
         except TelegramConflictError:
             logger.warning(f"TelegramConflictError detected (another bot instance running). Backoff {backoff}s...")
