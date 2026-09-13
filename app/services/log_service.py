@@ -1,5 +1,5 @@
 """
-Logging and Security Redaction Service.
+Logging and Security Redaction Service for AnjurX | Rss Bot.
 Ensures sensitive tokens, private keys, and passwords never appear in console logs.
 """
 import re
@@ -21,18 +21,14 @@ class LogService:
         text = PRIVATE_KEY_PATTERN.sub("[REDACTED_PRIVATE_KEY]", text)
         return text
 
-    def log_moderation(
-        self,
-        group_id: int,
-        user_id: int,
-        action: str,
-        reason: str,
-        details: Optional[Dict[str, Any]] = None
-    ) -> None:
-        clean_reason = self.sanitize(reason)
-        logger.info(
-            f"event=MODERATION group_id={group_id} user_id={user_id} action={action} reason={clean_reason}"
-        )
+    def log_feed_delivery(self, chat_id: int, feed_title: str, item_title: str) -> None:
+        clean_feed = self.sanitize(feed_title)
+        clean_item = self.sanitize(item_title)
+        logger.info(f"event=DELIVERY chat_id={chat_id} feed='{clean_feed}' item='{clean_item}'")
+
+    def log_feed_event(self, event_type: str, feed_url: str, details: Optional[Dict[str, Any]] = None) -> None:
+        clean_url = self.sanitize(feed_url)
+        logger.info(f"event=FEED_EVENT type={event_type} url='{clean_url}' details={details or {}}")
 
     def log_security_event(self, event_name: str, details: str) -> None:
         clean_details = self.sanitize(details)

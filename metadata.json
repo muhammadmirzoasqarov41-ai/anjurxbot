@@ -1,6 +1,6 @@
 {
-  "name": "AnjurXBot Admin",
-  "description": "Telegram group protection, moderation bot, and web administration panel",
+  "name": "AnjurX | Rss Bot",
+  "description": "High-performance Telegram RSS/Atom/JSON Feed reader bot with autodiscovery, OPML import/export, and real-time feed broadcasting for channels and groups",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

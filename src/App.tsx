@@ -1,48 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
-import { DashboardView } from './components/DashboardView';
-import { UsersView } from './components/UsersView';
-import { GuardView } from './components/GuardView';
-import { ModerationView } from './components/ModerationView';
-import { SimulatorView } from './components/SimulatorView';
-import { TelegramUser, TelegramGroup, ModerationLog, SystemStats, GuardSettings } from './types';
+import { FeedsView } from './components/FeedsView';
+import { SubscribersView } from './components/SubscribersView';
+import { PostsView } from './components/PostsView';
+import { GuideView } from './components/GuideView';
+import { RSSFeed, RSSSubscriber, DeliveredPost, RSSStats } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
-
-  const [stats, setStats] = useState<SystemStats | null>(null);
-  const [users, setUsers] = useState<TelegramUser[]>([]);
-  const [totalUsers, setTotalUsers] = useState<number>(0);
-  const [userPage, setUserPage] = useState<number>(1);
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [userSearch, setUserSearch] = useState<string>('');
-
-  const [groups, setGroups] = useState<TelegramGroup[]>([]);
-  const [moderationLogs, setModerationLogs] = useState<ModerationLog[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('feeds');
+  const [feeds, setFeeds] = useState<RSSFeed[]>([]);
+  const [subscribers, setSubscribers] = useState<RSSSubscriber[]>([]);
+  const [posts, setPosts] = useState<DeliveredPost[]>([]);
+  const [stats, setStats] = useState<RSSStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
-  const [botStatus, setBotStatus] = useState<string>('running');
 
-  // Directly load dashboard data on initial visit
   useEffect(() => {
     loadAllData();
   }, []);
 
-  const getHeaders = (customHeaders: Record<string, string> = {}) => {
-    const token = localStorage.getItem('anjurx_token');
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...customHeaders,
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    return headers;
-  };
-
   const loadAllData = async () => {
     setLoading(true);
     try {
-      await Promise.all([loadStats(), loadUsers(1, ''), loadGroups(), loadModerationLogs()]);
+      await Promise.all([loadStats(), loadFeeds(), loadSubscribers(), loadPosts()]);
     } finally {
       setLoading(false);
     }
@@ -50,212 +29,153 @@ export default function App() {
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/api/admin/dashboard', {
-        headers: getHeaders(),
-        credentials: 'include',
-      });
+      const res = await fetch('/api/stats');
       if (res.ok) {
         const data = await res.json();
         setStats(data);
-        if (data.bot_status) {
-          setBotStatus(data.bot_status);
-        }
       }
     } catch (e) {
       console.error('Failed to load stats', e);
     }
   };
 
-  const loadUsers = async (page = 1, search = '') => {
+  const loadFeeds = async () => {
     try {
-      const query = new URLSearchParams({
-        page: String(page),
-        limit: '50',
-        search,
-      });
-      const res = await fetch(`/api/admin/users?${query}`, {
-        headers: getHeaders(),
-        credentials: 'include',
-      });
+      const res = await fetch('/api/feeds');
       if (res.ok) {
         const data = await res.json();
-        setUsers(data.users || []);
-        setTotalUsers(data.total || 0);
-        setUserPage(data.page || 1);
-        setTotalPages(data.total_pages || 1);
+        setFeeds(data.feeds || []);
       }
     } catch (e) {
-      console.error('Failed to load users', e);
+      console.error('Failed to load feeds', e);
     }
   };
 
-  const loadGroups = async () => {
+  const loadSubscribers = async () => {
     try {
-      const res = await fetch('/api/admin/groups', {
-        headers: getHeaders(),
-        credentials: 'include',
-      });
+      const res = await fetch('/api/subscribers');
       if (res.ok) {
         const data = await res.json();
-        setGroups(data.groups || []);
+        setSubscribers(data.subscribers || []);
       }
     } catch (e) {
-      console.error('Failed to load groups', e);
+      console.error('Failed to load subscribers', e);
     }
   };
 
-  const loadModerationLogs = async () => {
+  const loadPosts = async () => {
     try {
-      const res = await fetch('/api/admin/logs', {
-        headers: getHeaders(),
-        credentials: 'include',
-      });
+      const res = await fetch('/api/posts');
       if (res.ok) {
         const data = await res.json();
-        setModerationLogs(data.logs || []);
+        setPosts(data.posts || []);
       }
     } catch (e) {
-      console.error('Failed to load moderation logs', e);
+      console.error('Failed to load posts', e);
     }
   };
 
-  const handleRefresh = async () => {
-    await loadAllData();
-  };
-
-  const handleClearWarns = async (userId: number) => {
+  const handleAddFeed = async (url: string, title: string): Promise<boolean> => {
     try {
-      const res = await fetch('/api/admin/logs/clearwarns', {
+      const res = await fetch('/api/feeds', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify({ user_id: userId }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title }),
       });
       if (res.ok) {
-        await Promise.all([loadUsers(userPage, userSearch), loadModerationLogs(), loadStats()]);
+        await Promise.all([loadFeeds(), loadStats()]);
+        return true;
       }
+      return false;
     } catch (e) {
-      console.error(e);
+      console.error('Failed to add feed', e);
+      return false;
     }
   };
 
-  const handleAddUser = async (user: Partial<TelegramUser>) => {
+  const handleDeleteFeed = async (feedId: string) => {
     try {
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify(user),
+      const res = await fetch(`/api/feeds/${encodeURIComponent(feedId)}`, {
+        method: 'DELETE',
       });
       if (res.ok) {
-        await Promise.all([loadUsers(1, ''), loadStats()]);
+        await Promise.all([loadFeeds(), loadStats(), loadSubscribers()]);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Failed to delete feed', e);
     }
   };
 
-  const handleUpdateGuard = async (groupId: string, guard: GuardSettings) => {
+  const handleSyncFeed = async (feedId: string) => {
     try {
-      const res = await fetch(`/api/admin/groups/${groupId}/guard`, {
-        method: 'PUT',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify(guard),
+      const res = await fetch(`/api/feeds/${encodeURIComponent(feedId)}/sync`, {
+        method: 'POST',
       });
       if (res.ok) {
-        await Promise.all([loadGroups(), loadStats()]);
+        await Promise.all([loadFeeds(), loadPosts()]);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Failed to sync feed', e);
     }
   };
 
-  const handleSimulateMessage = async (groupId: number, text: string, username: string) => {
+  const handleImportOpml = async (file: File) => {
     try {
-      const res = await fetch('/api/bot/simulate', {
+      const text = await file.text();
+      const res = await fetch('/api/import/opml', {
         method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify({
-          group_id: groupId,
-          message_text: text,
-          username,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opml: text }),
       });
-      const data = await res.json();
-      await Promise.all([loadModerationLogs(), loadUsers(userPage, userSearch), loadStats()]);
-      return data;
+      if (res.ok) {
+        await Promise.all([loadFeeds(), loadStats()]);
+      }
     } catch (e) {
-      console.error(e);
-      return { allowed: false, action: 'error', reason: 'Tarmoq xatosi' };
+      console.error('Failed to import OPML', e);
     }
   };
 
-  // Directly render Cyber Control Center Dashboard
+  const handleExportOpml = () => {
+    window.location.href = '/api/export/opml';
+  };
+
   return (
-    <div className="min-h-screen bg-cyber-grid text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-black text-slate-100 flex flex-col font-sans">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onLogout={handleRefresh}
-        authenticated={true}
-        botStatus={botStatus}
+        stats={stats}
+        onRefresh={loadAllData}
+        onExportOpml={handleExportOpml}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {activeTab === 'dashboard' && (
-          <DashboardView
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'feeds' && (
+          <FeedsView
+            feeds={feeds}
             stats={stats}
-            groups={groups}
-            recentLogs={moderationLogs}
-            onNavigate={setActiveTab}
-            onRefresh={loadAllData}
+            onAddFeed={handleAddFeed}
+            onDeleteFeed={handleDeleteFeed}
+            onSyncFeed={handleSyncFeed}
+            onImportOpml={handleImportOpml}
+            loading={loading}
           />
         )}
 
-        {activeTab === 'users' && (
-          <UsersView
-            users={users}
-            totalUsers={totalUsers}
-            page={userPage}
-            totalPages={totalPages}
-            onPageChange={(newPage) => {
-              setUserPage(newPage);
-              loadUsers(newPage, userSearch);
-            }}
-            onSearch={(query) => {
-              setUserSearch(query);
-              loadUsers(1, query);
-            }}
-            onClearWarns={handleClearWarns}
-            onAddUser={handleAddUser}
-          />
-        )}
+        {activeTab === 'subscribers' && <SubscribersView subscribers={subscribers} />}
 
-        {activeTab === 'guard' && (
-          <GuardView groups={groups} onUpdateGuard={handleUpdateGuard} />
-        )}
+        {activeTab === 'posts' && <PostsView posts={posts} />}
 
-        {activeTab === 'moderation' && (
-          <ModerationView logs={moderationLogs} onClearWarns={handleClearWarns} />
-        )}
-
-        {activeTab === 'simulator' && (
-          <SimulatorView
-            groups={groups}
-            onSimulateMessage={handleSimulateMessage}
-          />
-        )}
+        {activeTab === 'guide' && <GuideView />}
       </main>
 
-      <footer className="border-t border-[#121c2b] bg-[#05070a]/90 py-5 text-center text-xs text-slate-500 font-mono-cyber">
-        <div className="flex items-center justify-center gap-4">
-          <span>ANJURX_BOT PROTOCOL V2.4</span>
-          <span>&bull;</span>
-          <span>SUPER ADMIN: @usafes [8157452043]</span>
-          <span>&bull;</span>
-          <span className="text-[#00ff66]">PROTECTION ACTIVE</span>
+      <footer className="border-t border-zinc-900 py-4 text-center text-xs text-zinc-500">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>AnjurX | Rss Bot &copy; 2026 — Ochiq manbali RSS/Atom Telegram boti</span>
+          <div className="flex items-center space-x-4">
+            <span>Holat: <strong className="text-emerald-400">FAOL</strong></span>
+            <span>Versiya: <strong>3.0-RSS</strong></span>
+          </div>
         </div>
       </footer>
     </div>

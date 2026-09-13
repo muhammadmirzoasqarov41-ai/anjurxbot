@@ -1,83 +1,45 @@
-export interface TelegramUser {
-  _id: string;
-  user_id: number;
-  username?: string;
-  first_name?: string;
-  last_name?: string;
-  created_at: string;
-  warnings_count?: number;
-  is_banned?: boolean;
-  is_muted?: boolean;
-  language_code?: string;
-}
-
-export interface GuardSettings {
-  enabled: boolean;
-  anti_spam: boolean;
-  anti_flood: boolean;
-  anti_link: boolean;
-  anti_ads: boolean;
-  anti_repeat: boolean;
-  bad_words: boolean;
-  new_member_protection: boolean;
-  flood_limit: number;
-  flood_window: number;
-  mute_duration: number;
-  bad_words_list: string[];
-}
-
-export interface TelegramGroup {
-  _id: string;
-  group_id: number;
-  title: string;
-  username?: string;
-  type?: string;
-  owner_id?: number;
-  owner?: {
-    user_id: number;
-    username?: string;
-    first_name?: string;
-    last_name?: string;
-    is_bot?: boolean;
-  };
-  admins?: Array<{
-    user_id: number;
-    username?: string;
-    first_name?: string;
-    last_name?: string;
-    status?: string;
-    is_owner?: boolean;
-    is_bot?: boolean;
-    custom_title?: string;
-  }>;
-  admin_ids?: number[];
-  members_count: number;
-  is_active?: boolean;
-  bot_status?: string;
-  guard: GuardSettings;
-  created_at: string;
-}
-
-export interface ModerationLog {
+export interface RSSFeed {
   id: string;
-  group_id: number;
-  group_title: string;
-  user_id: number;
-  username?: string;
-  action: 'warn' | 'mute' | 'ban' | 'delete' | 'clear_warns';
-  reason: string;
-  timestamp: string;
+  url: string;
+  title: string;
+  link: string;
+  description: string;
+  subscribers_count: number;
+  subscribers: number[];
+  error_count: number;
+  last_error?: string;
+  last_check?: string;
+  etag?: string;
+  last_modified?: string;
+  format?: string;
 }
 
-export interface SystemStats {
-  total_users: number;
-  total_groups: number;
-  active_guard_groups: number;
-  messages_scanned: number;
-  violations_blocked: number;
-  spams_prevented: number;
-  links_removed: number;
+export interface RSSSubscriber {
+  chat_id: number;
+  title: string;
+  type: 'private' | 'group' | 'supergroup' | 'channel';
+  feed_count: number;
+  feeds: string[];
+  joined_at: string;
+}
+
+export interface DeliveredPost {
+  id: string;
+  title: string;
+  link: string;
+  feed_title: string;
+  feed_id: string;
+  published_at: string;
+  delivered_at: string;
+  recipients_count: number;
+}
+
+export interface RSSStats {
+  total_feeds: number;
+  total_subscribers: number;
+  active_subscriptions: number;
+  posts_delivered: number;
   uptime_seconds?: number;
-  spam_blocked?: number;
-  links_deleted?: number;
+  bot_status?: string;
+  bot_username?: string;
 }

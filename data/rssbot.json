@@ -1,0 +1,30 @@
+{
+  "feeds": {
+    "kun_uz_news_rss": {
+      "id": "kun_uz_news_rss",
+      "url": "https://kun.uz/news/rss",
+      "title": "Kun.uz Yangiliklar",
+      "link": "https://kun.uz",
+      "description": "Kun.uz yangiliklar portali rasmiy RSS lentasi",
+      "subscribers": [8157452043],
+      "error_count": 0,
+      "last_error": null,
+      "last_check": "2026-09-13T12:00:00Z",
+      "etag": null,
+      "last_modified": null,
+      "seen_hashes": []
+    }
+  },
+  "subscribers": {
+    "8157452043": {
+      "chat_id": 8157452043,
+      "title": "@usafes (Super Admin)",
+      "type": "private",
+      "feeds": [
+        "kun_uz_news_rss"
+      ],
+      "joined_at": "2026-09-13T12:00:00Z"
+    }
+  },
+  "posts_delivered": 18
+}

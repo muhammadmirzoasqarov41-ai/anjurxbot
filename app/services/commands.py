@@ -1,54 +1,36 @@
 """
-Telegram Bot Commands Configuration.
-Sets contextual BotFather command menus for private and group chats.
+Telegram Bot command setup for AnjurX | Rss Bot.
+Registers bot command menus for users and administrators.
 """
 import logging
 from aiogram import Bot
-from aiogram.types import (
-    BotCommand,
-    BotCommandScopeDefault,
-    BotCommandScopeAllPrivateChats,
-    BotCommandScopeAllGroupChats,
-)
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeAllChatAdministrators
 
 logger = logging.getLogger("anjurxbot.commands")
 
 
 async def setup_bot_commands(bot: Bot):
-    """
-    Configures official Telegram Bot Command Menu for all scopes.
-    Prioritizes key operational commands:
-    /start, /help, /setup, /settings, /status
-    """
-    default_commands = [
-        BotCommand(command="start", description="Botni boshlash"),
-        BotCommand(command="help", description="Yordam va qo‘llanma"),
-        BotCommand(command="setup", description="Guruhni sozlash ustasi"),
-        BotCommand(command="settings", description="Guruh sozlamalari paneli"),
-        BotCommand(command="status", description="Himoya filtrlari holati"),
+    """Sets standard BotFather command menu in Telegram clients."""
+    user_commands = [
+        BotCommand(command="start", description="Botni ishga tushirish va ma'lumot"),
+        BotCommand(command="sub", description="Yangi RSS feedga obuna bo'lish: /sub <url>"),
+        BotCommand(command="unsub", description="Obunani bekor qilish"),
+        BotCommand(command="rss", description="Obunalar ro'yxati (/rss yoki /rss raw)"),
+        BotCommand(command="export", description="Obunalarni OPML fayl sifatida eksport qilish"),
+        BotCommand(command="allunsub", description="Barcha obunalarni o'chirish"),
     ]
 
-    private_commands = [
-        BotCommand(command="start", description="Botni boshlash"),
-        BotCommand(command="help", description="Qo‘llanma va yordam markazi"),
-        BotCommand(command="id", description="Sizning Telegram ID raqamingiz"),
-    ]
-
-    group_commands = [
-        BotCommand(command="setup", description="Guruhni tezkor sozlash"),
-        BotCommand(command="settings", description="Guruh sozlamalari paneli"),
-        BotCommand(command="status", description="Himoya filtrlari holati"),
-        BotCommand(command="help", description="Guruh buyruqlari qo‘llanmasi"),
-        BotCommand(command="warn", description="A'zoga ogohlantirish berish (reply)"),
-        BotCommand(command="mute", description="A'zo ovozini o‘chirish (reply)"),
-        BotCommand(command="unmute", description="Ovoz cheklovini bekor qilish (reply)"),
-        BotCommand(command="id", description="Chat va foydalanuvchi ID"),
+    admin_commands = [
+        BotCommand(command="sub", description="Guruh/kanal uchun RSS obuna qo'shish"),
+        BotCommand(command="unsub", description="Obunani o'chirish"),
+        BotCommand(command="rss", description="Faol obunalar"),
+        BotCommand(command="export", description="OPML eksport"),
+        BotCommand(command="allunsub", description="Barcha obunalarni o'chirish"),
     ]
 
     try:
-        await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
-        await bot.set_my_commands(private_commands, scope=BotCommandScopeAllPrivateChats())
-        await bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
-        logger.info("Telegram bot command menus configured successfully for all scopes.")
+        await bot.set_my_commands(user_commands, scope=BotCommandScopeDefault())
+        await bot.set_my_commands(admin_commands, scope=BotCommandScopeAllChatAdministrators())
+        logger.info("AnjurX | Rss Bot commands registered successfully in Telegram.")
     except Exception as e:
-        logger.warning(f"Failed to set Telegram bot commands: {e}")
+        logger.warning(f"Could not register Telegram commands menu: {e}")

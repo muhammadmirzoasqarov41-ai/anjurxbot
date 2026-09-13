@@ -34,14 +34,12 @@ class Config:
     timezone: str = field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Tashkent").strip())
     debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() in ("true", "1", "yes"))
     
-    # Cache and Rate Limiting TTLs
-    cache_ttl_group_config: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_GROUP_CONFIG", "300")))
-    cache_ttl_member_status: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_MEMBER_STATUS", "60")))
-    rate_limit_default: float = field(default_factory=lambda: float(os.getenv("RATE_LIMIT_DEFAULT", "2.0")))
-    rate_limit_subscription: float = field(default_factory=lambda: float(os.getenv("RATE_LIMIT_SUBSCRIPTION", "3.0")))
-    rate_limit_subscription_window: float = field(
-        default_factory=lambda: float(os.getenv("RATE_LIMIT_SUBSCRIPTION_WINDOW", "5.0"))
-    )
+    # RSS Feed Polling and Rate Limits
+    min_interval: int = field(default_factory=lambda: int(os.getenv("MIN_INTERVAL", "300")))
+    max_interval: int = field(default_factory=lambda: int(os.getenv("MAX_INTERVAL", "43200")))
+    max_feed_size: int = field(default_factory=lambda: int(os.getenv("MAX_FEED_SIZE", "5242880")))
+    rate_limit_default: float = field(default_factory=lambda: float(os.getenv("RATE_LIMIT_DEFAULT", "1.0")))
+    database_path: str = field(default_factory=lambda: os.getenv("DATABASE_PATH", "./data/rssbot.json").strip())
 
     def __post_init__(self):
         # Parse Admin IDs (support SUPER_ADMIN_ID, ADMIN_IDS, and ADMIN_ID)

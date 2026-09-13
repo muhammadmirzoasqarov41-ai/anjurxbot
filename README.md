@@ -1,18 +1,31 @@
-# AnjurXBot
+# AnjurX | Rss Bot
 
-Telegram group protection and moderation bot powered by aiogram 3, Firebase Firestore, and Render Web Service.
+Tezkor, ishonchli va resurslarni tejamkor ishlatuvchi Telegram RSS/Atom/JSON Feed o'quvchi boti va Web boshqaruv paneli.
 
-## Features
+Ushbu bot siz yoqtirgan veb-saytlar, bloglar va yangiliklar lentasidan yangi maqolalarni Telegram chatlari, guruhlari va kanallariga avtomatik ravishda chiroyli HTML formatida yetkazib beradi.
 
-- Force Subscribe with multiple channels
-- Guard: anti-spam, anti-flood, anti-link, anti-advertisement, anti-repeat
-- Bad-word and new-member protection
-- Warning and moderation history
-- Aggregate and daily statistics
-- Inline admin panel and setup wizard
-- Permission checks, callback security, rate limiting, and TTL caches
+## Imkoniyatlari (Features)
 
-## Installation
+- **Universal Feed Parsing:** RSS 2.0, Atom 1.0, JSON Feed v1 formatlarini to'liq qo'llab-quvvatlaydi.
+- **Autodiscovery:** Sayt havolasini yuborsangiz, uning ichidagi RSS feed avtomatik aniqlanadi.
+- **Guruhlar va Kanallar:** Shaxsiy chatlardan tashqari, botni guruhlar va kanallarga administrator qilib qo'shib yangiliklarni avtomatik e'lon qilish mumkin.
+- **OPML Import & Export:** Mavjud obunalarni `.opml` fayl ko'rinishida yuklab olish va boshqa ilovalardan yuklangan faylni bir zumda botga ommaviy import qilish.
+- **Smart Deduplication & Caching:** SHA-256 maqola xeshlari orqali eski postlar qayta yuborilmaydi; ETag va Last-Modified orqali server trafigi tejaladi.
+- **Gibrid Saqlash Tizimi:** Firebase Firestore orqali bulutli xavfsiz saqlash va mahalliy JSON (`data/rssbot.json`) orqali uzluksiz ishlash.
+- **Web Dashboard:** Zamonaviy React & Tailwind asosidagi lentalar monitoringi va boshqaruv paneli.
+
+## Telegram Buyruqlari
+
+- `/start` — Botni ishga tushirish va asosiy menyu
+- `/sub <url>` — Yangi RSS feedga obuna bo'lish (masalan: `/sub https://kun.uz/news/rss`)
+- `/unsub` — Obunani bekor qilish menyusi (yoki `/unsub <url>`)
+- `/rss` — Faol obunalar ro'yxatini ko'rish
+- `/rss raw` — Obunalar havolalarini xom matn ko'rinishida olish
+- `/export` — Barcha obunalarni OPML fayl sifatida yuklab olish
+- `/allunsub` — Barcha obunalarni o'chirish
+- `.opml` fayl yuborish — Ommaviy feedlarni import qilish
+
+## O'rnatish va Ishga Tushirish
 
 ```bash
 git clone https://github.com/muhammadmirzoasqarov41-ai/anjurxbot.git
@@ -23,86 +36,22 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill `.env` with real values. Never commit `.env`, Firebase JSON files, or tokens.
-
-Required environment variables:
+`.env` faylida quyidagi asosiy o'zgaruvchilarni ko'rsating:
 
 ```env
-BOT_TOKEN=
-ADMIN_IDS=
-FIREBASE_PROJECT_ID=
-FIREBASE_PRIVATE_KEY_ID=
-FIREBASE_PRIVATE_KEY=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_CLIENT_ID=
-FIREBASE_CLIENT_X509_CERT_URL=
-LOG_LEVEL=INFO
-TIMEZONE=Asia/Tashkent
-WEB_ADMIN_KEY=
+BOT_TOKEN=your_telegram_bot_token
+BOT_USERNAME=AnjurXBot
+ADMIN_IDS=8157452043
+SUPER_ADMIN_ID=8157452043
+MIN_INTERVAL=300
+MAX_INTERVAL=43200
 ```
 
-`FIREBASE_PRIVATE_KEY` may contain literal `\\n`; the application converts those sequences to newlines. Optional rate-limit variables are documented in `.env.example`.
-
-## Run
-
+### Ishga tushirish:
 ```bash
-python main.py                 # polling plus web panel
-```
-
-Do not run a local polling instance while the Render production worker is running, because Telegram allows only one active polling consumer for a bot token.
-
-## Commands
-
-General:
-
-- `/start` — start the bot
-- `/help` — usage help
-
-Group administrator commands:
-
-- `/setup` — verify bot status and permissions
-- `/panel` — open the inline admin panel
-- `/guard` — manage Guard
-- `/fsub` — manage Force Subscribe
-- `/stats` — view group statistics
-- `/clearwarns` — clear warnings for a replied-to user or numeric user ID
-
-## Render deployment
-
-Create a **Web Service** connected to this repository. It runs the Telegram
-polling loop and the read-only panel in one free service.
-
-- Build command: `pip install -r requirements.txt`
-- Start command: `python -m app.web_service`
-- Python version: `3.11.9` (configured in `runtime.txt`)
-
-Set these variables in the Render dashboard only:
-
-```text
-BOT_TOKEN
-ADMIN_IDS
-FIREBASE_PROJECT_ID
-FIREBASE_PRIVATE_KEY_ID
-FIREBASE_PRIVATE_KEY
-FIREBASE_CLIENT_EMAIL
-FIREBASE_CLIENT_ID
-FIREBASE_CLIENT_X509_CERT_URL
-LOG_LEVEL
-TIMEZONE
-```
-
-Set `WEB_ADMIN_KEY` in the service environment and open the deployed service
-URL. The read-only panel is at `/`; Render health checks use `/health`. The
-service does not expose bot tokens, Firebase keys, or full user documents.
-
-Never place real values in `README.md`, `render.yaml`, `.env.example`, source code, or logs.
-
-## Verification before deployment
-
-```bash
-python -m compileall main.py app
-pytest -q  # when a test suite is present
 python main.py
 ```
-
-The startup command requires valid environment variables and network access to Telegram and Firebase.
+Yoki Web panel bilan ishlash uchun:
+```bash
+npm run dev
+```
