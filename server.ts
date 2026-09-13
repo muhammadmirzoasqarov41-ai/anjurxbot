@@ -208,13 +208,6 @@ interface StoredGroup {
     mute_duration: number;
     bad_words_list: string[];
   };
-  fsub_channels: Array<{
-    channel_id: string | number;
-    username: string;
-    title: string;
-    invite_link?: string;
-    is_active: boolean;
-  }>;
   created_at: string;
 }
 
@@ -238,13 +231,6 @@ const memoryModerationLogs: ModerationRecord[] = [];
 function mapFirestoreGroup(docId: string, data: any): StoredGroup {
   const gid = Number(data.group_id || data.chat_id || docId);
   const guardRaw = data.guard || data.guard_settings || {};
-  const fsubRaw = data.force_subscribe || data.force_sub || {};
-
-  const channelsList = Array.isArray(fsubRaw.channels)
-    ? fsubRaw.channels
-    : Array.isArray(fsubRaw)
-    ? fsubRaw
-    : [];
 
   return {
     _id: docId,
@@ -283,13 +269,6 @@ function mapFirestoreGroup(docId: string, data: any): StoredGroup {
         return rawList;
       })(),
     },
-    fsub_channels: channelsList.map((ch: any) => ({
-      channel_id: ch.channel_id,
-      username: ch.username || '',
-      title: ch.title || 'Kanal',
-      invite_link: ch.invite_link || (ch.username ? `https://t.me/${ch.username}` : ''),
-      is_active: Boolean(fsubRaw.enabled ?? fsubRaw.is_enabled ?? true),
-    })),
     created_at: data.created_at || data.updated_at || data.added_at || new Date().toISOString(),
   };
 }
@@ -711,176 +690,6 @@ app.put(['/api/groups/:id/guard', '/api/admin/groups/:id/guard'], async (req: Re
   };
 
   return res.json({ status: 'ok', guard: group.guard });
-});
-
-// --------------------------------------------------------------------------
-// Force Subscribe (FSub) Channels API (Direct Firestore connection)
-// --------------------------------------------------------------------------
-app.get(['/api/groups/:id/fsub', '/api/admin/groups/:id/fsub'], async (req: Request, res: Response) => {
-  if (!isAuthenticated(req)) {
-    return res.status(401).json({ error: 'Ruxsat berilmagan' });
-  }
-
-  const id = String(req.params.id);
-  const db = getFirestoreDb();
-
-  if (db) {
-    try {
-      const docRef = db.collection('groups').doc(id);
-      const doc = await docRef.get();
-      if (doc.exists) {
-        const mapped = mapFirestoreGroup(doc.id, doc.data());
-        return res.json({ channels: mapped.fsub_channels });
-      }
-    } catch (err: any) {
-      console.error(`[API GET /groups/${id}/fsub] Firestore error:`, err.message);
-    }
-  }
-
-  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
-  if (!group) {
-    return res.status(404).json({ error: 'Guruh topilmadi' });
-  }
-  return res.json({ channels: group.fsub_channels });
-});
-
-app.post(['/api/groups/:id/fsub', '/api/admin/groups/:id/fsub'], async (req: Request, res: Response) => {
-  if (!isAuthenticated(req)) {
-    return res.status(401).json({ error: 'Ruxsat berilmagan' });
-  }
-
-  const id = String(req.params.id);
-  const { channel_id, username, title, invite_link } = req.body;
-  if (!channel_id || !title) {
-    return res.status(400).json({ error: 'channel_id va title kiritilishi lozim' });
-  }
-
-  const newChannel = {
-    channel_id,
-    username: username ? String(username).replace(/^@/, '') : '',
-    title,
-    invite_link: invite_link || `https://t.me/${username ? String(username).replace(/^@/, '') : ''}`,
-    is_active: true,
-  };
-
-  const db = getFirestoreDb();
-  if (db) {
-    try {
-      let docRef = db.collection('groups').doc(id);
-      let doc = await docRef.get();
-
-      if (!doc.exists) {
-        const numId = Number(id);
-        if (!isNaN(numId)) {
-          const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
-          if (!query.empty) {
-            docRef = query.docs[0].ref;
-            doc = query.docs[0];
-          }
-        }
-      }
-
-      if (doc.exists) {
-        const data = doc.data() || {};
-        const forceSub = data.force_sub || { is_enabled: false, channels: [] };
-        const channels = Array.isArray(forceSub.channels) ? forceSub.channels : [];
-        
-        // Remove duplicate channel_id if exists
-        const filtered = channels.filter((c: any) => String(c.channel_id) !== String(channel_id));
-        filtered.push(newChannel);
-
-        await docRef.set(
-          {
-            force_sub: {
-              is_enabled: true,
-              channels: filtered,
-            },
-            updated_at: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-
-        const fresh = await docRef.get();
-        const mapped = mapFirestoreGroup(docRef.id, fresh.data());
-        return res.json({ status: 'ok', channels: mapped.fsub_channels });
-      }
-    } catch (err: any) {
-      console.error(`[API POST /groups/${id}/fsub] Firestore error:`, err.message);
-    }
-  }
-
-  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
-  if (!group) {
-    return res.status(404).json({ error: 'Guruh topilmadi' });
-  }
-
-  group.fsub_channels.push(newChannel);
-  return res.json({ status: 'ok', channels: group.fsub_channels });
-});
-
-app.delete(['/api/groups/:id/fsub/:channelId', '/api/admin/groups/:id/fsub/:channelId'], async (req: Request, res: Response) => {
-  if (!isAuthenticated(req)) {
-    return res.status(401).json({ error: 'Ruxsat berilmagan' });
-  }
-
-  const id = String(req.params.id);
-  const channelId = String(req.params.channelId);
-  const db = getFirestoreDb();
-
-  if (db) {
-    try {
-      let docRef = db.collection('groups').doc(id);
-      let doc = await docRef.get();
-
-      if (!doc.exists) {
-        const numId = Number(id);
-        if (!isNaN(numId)) {
-          const query = await db.collection('groups').where('group_id', '==', numId).limit(1).get();
-          if (!query.empty) {
-            docRef = query.docs[0].ref;
-            doc = query.docs[0];
-          }
-        }
-      }
-
-      if (doc.exists) {
-        const data = doc.data() || {};
-        const forceSub = data.force_sub || { is_enabled: false, channels: [] };
-        const channels = Array.isArray(forceSub.channels) ? forceSub.channels : [];
-        const filtered = channels.filter(
-          (c: any) => String(c.channel_id) !== channelId && c.username !== channelId
-        );
-
-        await docRef.set(
-          {
-            force_sub: {
-              ...forceSub,
-              channels: filtered,
-            },
-            updated_at: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-
-        const fresh = await docRef.get();
-        const mapped = mapFirestoreGroup(docRef.id, fresh.data());
-        return res.json({ status: 'ok', channels: mapped.fsub_channels });
-      }
-    } catch (err: any) {
-      console.error(`[API DELETE /groups/${id}/fsub] Firestore error:`, err.message);
-    }
-  }
-
-  const group = memoryGroups.find((g) => g._id === id || String(g.group_id) === id);
-  if (!group) {
-    return res.status(404).json({ error: 'Guruh topilmadi' });
-  }
-
-  group.fsub_channels = group.fsub_channels.filter(
-    (c) => String(c.channel_id) !== channelId && c.username !== channelId
-  );
-
-  return res.json({ status: 'ok', channels: group.fsub_channels });
 });
 
 // --------------------------------------------------------------------------

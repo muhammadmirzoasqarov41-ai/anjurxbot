@@ -105,5 +105,14 @@ class ModerationService:
             logger.error(f"error_type={type(e).__name__} action=ban_user chat_id={chat_id} user_id={user_id}")
             return False
 
+    async def unban_user(self, bot: Bot, chat_id: int, user_id: int) -> bool:
+        """Unbans user from group."""
+        try:
+            await bot.unban_chat_member(chat_id=chat_id, user_id=user_id, only_if_banned=True)
+            return True
+        except Exception as e:
+            logger.error(f"error_type={type(e).__name__} action=unban_user chat_id={chat_id} user_id={user_id}")
+            return False
+
 
 moderation_service = ModerationService()

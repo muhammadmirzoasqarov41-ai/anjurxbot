@@ -290,6 +290,11 @@ class PermissionService:
             logger.error(f"error_type={type(e).__name__} action=get_bot_permissions group_id={group_id} error={e}")
             return (False, False, False)
 
+    def set_cached_admins(self, group_id: int, admin_ids: List[int]) -> None:
+        now = time.time()
+        for uid in admin_ids:
+            self._role_cache[(group_id, uid)] = ("ADMIN", now)
+
     def invalidate_user_cache(self, group_id: int, user_id: int) -> None:
         self._role_cache.pop((group_id, user_id), None)
 

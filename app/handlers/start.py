@@ -1,6 +1,6 @@
 """
-Start and Help Command Handlers for AnjurXBot.
-Provides professional, clear, and actionable onboarding and help UX.
+Start and Help Command Handlers for AnjurXBot (Qorovul).
+Focused purely on group protection and guard architecture.
 """
 from aiogram import Router, Bot, F
 from aiogram.filters import CommandStart, Command
@@ -18,21 +18,21 @@ router = Router(name="start_router")
 
 
 def _get_start_text(user_name: str) -> str:
-    """Returns the primary concise and professional welcome message."""
+    """Returns the primary concise and professional welcome message for Qorovul."""
     clean_name = user_name.replace("<", "&lt;").replace(">", "&gt;") if user_name else "Foydalanuvchi"
     return (
         f"Assalomu alaykum, <b>{clean_name}</b>! 👋\n\n"
-        f"🤖 <b>AnjurXBot</b>\n"
-        f"Telegram guruhingizni spam, reklama, flood, havolalar va taqiqlangan so‘zlardan himoya qiladi.\n\n"
-        f"🚀 <b>Boshlash uchun:</b>\n"
+        f"🛡 <b>AnjurXBot — guruhingizning Qorovuli.</b>\n\n"
+        f"Spam, reklama, flood, havola va taqiqlangan so‘zlarni nazorat qiladi hamda guruh tartibini saqlashga yordam beradi.\n\n"
+        f"🚀 <b>Boshlash:</b>\n"
         f"1️⃣ Botni guruhga qo‘shing\n"
-        f"2️⃣ Botga administrator huquqi bering\n"
+        f"2️⃣ Administrator qiling\n"
         f"3️⃣ Guruhda /setup buyrug‘ini yuboring\n\n"
         f"⚡️ <b>Tezkor buyruqlar:</b>\n"
-        f"• /setup — guruhni sozlash\n"
-        f"• /settings — sozlamalar\n"
-        f"• /status — himoya holati\n"
-        f"• /help — yordam"
+        f"• /setup — Qorovulni sozlash\n"
+        f"• /settings — Himoya sozlamalari\n"
+        f"• /status — Qorovul holati\n"
+        f"• /help — Yordam"
     )
 
 
@@ -53,19 +53,19 @@ async def cmd_start(message: Message, bot: Bot):
         }
     )
 
-    # 1. Group chat /start check (Requirement #7: brief and contextual)
+    # 1. Group chat /start check (brief and contextual)
     if message.chat.type in ("group", "supergroup"):
         await message.reply(
-            "⚡️ <b>AnjurXBot faol!</b>\n\n"
+            "⚡️ <b>AnjurXBot — Qorovul faol!</b>\n\n"
             "Guruhni boshqarish uchun buyruqlar:\n"
-            "• /settings — barcha sozlamalar paneli\n"
-            "• /setup — tezkor sozlash ustasi\n"
-            "• /status — joriy himoya holati",
+            "• /setup — Qorovulni sozlash ustasi\n"
+            "• /settings — himoya sozlamalari paneli\n"
+            "• /status — Qorovul holati",
             parse_mode="HTML"
         )
         return
 
-    # 2. Private chat welcome (Requirement #1: concise, actionable UI)
+    # 2. Private chat welcome (clean, focused Qorovul UX)
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
     keyboard = get_start_keyboard(bot_username)
@@ -77,25 +77,25 @@ async def cmd_start(message: Message, bot: Bot):
 @router.message(Command("help"))
 async def cmd_help(message: Message, bot: Bot):
     """
-    Help command entrypoint (Requirement #5: concise with interactive submenus).
+    Help command entrypoint for Qorovul.
     """
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     help_text = (
-        "🤖 <b>AnjurXBot yordam markazi</b>\n\n"
-        "⚙️ Guruhni sozlash: <code>/setup</code>\n"
+        "🛡 <b>AnjurXBot Qorovul yordam markazi</b>\n\n"
+        "⚙️ Qorovulni sozlash: <code>/setup</code>\n"
         "🛡 Himoya sozlamalari: <code>/settings</code>\n"
-        "📊 Himoya holati: <code>/status</code>\n\n"
+        "📊 Qorovul holati: <code>/status</code>\n\n"
         "❓ <b>Batafsil qo‘llanma:</b>\n"
-        "Kerakli bo‘limni ko‘rish uchun quyidagi tugmalardan birini tanlang:"
+        "Quyidagi bo‘limlardan birini tanlang:"
     )
     keyboard = get_help_menu_keyboard(bot_username)
     await message.reply(help_text, reply_markup=keyboard, parse_mode="HTML")
 
 
 # =====================================================================
-# Help & Guide Submenu Callbacks (Requirement #3)
+# Qorovul Help & Guide Submenu Callbacks
 # =====================================================================
 
 @router.callback_query(F.data.in_(["help:menu", "common:help"]))
@@ -104,7 +104,7 @@ async def cb_help_menu(callback: CallbackQuery, bot: Bot):
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "📖 <b>AnjurXBot Yordam va Qo‘llanma Markazi</b>\n\n"
+        "📖 <b>AnjurXBot Qorovul Yordam Markazi</b>\n\n"
         "Kerakli mavzuni tanlang:"
     )
     try:
@@ -120,16 +120,18 @@ async def cb_help_menu(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data == "help:start")
 async def cb_help_start(callback: CallbackQuery, bot: Bot):
-    """Guide: How to add and activate bot (Requirement #3.1 & #11)."""
+    """Guide: How to add and activate Qorovul."""
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "🚀 <b>Boshlash — Botni guruhga ulash:</b>\n\n"
-        "1️⃣ <b>Guruhga qo‘shing:</b> Pastdagi «➕ Guruhga qo‘shish» tugmasini bosing yoki botni guruh a'zolariga qo‘shing.\n"
-        "2️⃣ <b>Admin huquqi bering:</b> Bot xabarlarni o‘chirishi va jazo qo‘llashi uchun unga administrator vakolatlarini bering.\n"
-        "3️⃣ <b>Sozlang:</b> Guruh ichida <code>/setup</code> yozing va Standart yoki Qat'iy rejimni tanlang.\n\n"
-        "Shundan so‘ng bot guruhni avtomatik ravishda 24/7 himoya qiladi."
+        "🛡 <b>Qorovul nima va qanday ishlaydi?</b>\n\n"
+        "AnjurXBot — Telegram guruhingizni avtomatik ravishda 24/7 himoya qiluvchi xavfsizlik tizimi.\n\n"
+        "🚀 <b>Guruhga ulash tartibi:</b>\n"
+        "1️⃣ <b>Guruhga qo‘shing:</b> «➕ Guruhga qo‘shish» tugmasini bosing.\n"
+        "2️⃣ <b>Admin huquqi bering:</b> Bot xabarlarni o‘chirishi va jazolarni qo‘llashi uchun unga administrator vakolatlarini bering.\n"
+        "3️⃣ <b>Sozlang:</b> Guruh ichida <code>/setup</code> yozing va himoya filtrlari faollashtiring.\n\n"
+        "Shundan so‘ng bot guruhdagi barcha kirdi-chiqdi, spam, reklama va havolalarni darhol bartaraf etadi."
     )
     try:
         await callback.message.edit_text(
@@ -144,16 +146,16 @@ async def cb_help_start(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data == "help:setup")
 async def cb_help_setup(callback: CallbackQuery, bot: Bot):
-    """Guide: Difference between /setup and /settings (Requirement #3.2 & #6)."""
+    """Guide: Difference between /setup and /settings."""
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "⚙️ <b>/setup va /settings farqi:</b>\n\n"
+        "⚙️ <b>Guruhni sozlash: /setup va /settings farqi:</b>\n\n"
         "• <b>/setup</b> — Guruhni birinchi marta tezkor sozlash ustasi.\n"
-        "Guruh himoyasini 1 bosish orqali Standart yoki Qat'iy rejimda ishga tushiradi.\n\n"
-        "• <b>/settings</b> — Guruhning to‘liq boshqaruv paneli.\n"
-        "Anti-Link, Anti-Flood, So‘kish filtri, Mute/Warn va Majburiy obunani alohida yoqish/o‘chirish imkonini beradi.\n\n"
+        "Anti-Spam, Anti-Flood, Anti-Link, Anti-Ads va Taqiqlangan so‘zlarni bir bosishda yoqish imkonini beradi.\n\n"
+        "• <b>/settings</b> — Qorovulning to‘liq boshqaruv markazi.\n"
+        "Har bir filtr chegarasini (flood tezligi, ogohlantirish soni, jazo turi) alohida nozik sozlash imkonini beradi.\n\n"
         "<i>Eslatma: Har ikki buyruq xavfsizlik yuzasidan faqat guruh adminlari uchun ishlaydi.</i>"
     )
     try:
@@ -167,20 +169,18 @@ async def cb_help_setup(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callback_query(F.data == "help:guard")
-async def cb_help_guard(callback: CallbackQuery, bot: Bot):
-    """Guide: Guard and moderation filters explained simply (Requirement #3.3 & #14)."""
+@router.callback_query(F.data == "help:links")
+async def cb_help_links(callback: CallbackQuery, bot: Bot):
+    """Guide: Links, Spam, Ads protection."""
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "🛡 <b>Himoya va Moderatsiya tizimi:</b>\n\n"
-        "• <b>Anti-Link:</b> Telegram kanallari va har qanday begona havolalarni darhol o‘chiradi.\n"
-        "• <b>Anti-Ads:</b> Reklama xabarlari va bot havolalarini tozalaydi.\n"
-        "• <b>Anti-Flood:</b> Guruhda juda tez-tez ketma-ket xabar yuborishni cheklaydi.\n"
-        "• <b>Anti-Repeat:</b> Bir xil matnni qayta-qayta yuborishni to‘xtatadi.\n"
-        "• <b>So‘kish filtri:</b> Haqoratli so‘zlar va 18+ xabarlarni avtomatik o‘chiradi.\n"
-        "• <b>Ogohlantirish (Warn):</b> Qoidabuzarlarga ogohlantirish beradi va limit to‘lganda jazolaydi (Mute / Kick / Ban)."
+        "🔗 <b>Anti-Link, Anti-Spam va Anti-Ads himoyasi:</b>\n\n"
+        "• <b>Anti-Link:</b> Telegram kanallari (t.me/...), guruh havolalari va har qanday begona veb-sayt havolalarini darhol o‘chiradi.\n"
+        "• <b>Anti-Ads:</b> Reklama xabarlari, referal havolalar va bot havolalarini avtomatik aniqlab tozalaydi.\n"
+        "• <b>Anti-Spam:</b> Qaytalanuvchi xabarlar va spam xabarlarni guruhdan yo‘qotadi.\n\n"
+        "<i>Sozlash uchun guruhda /settings buyrug‘idan foydalaning.</i>"
     )
     try:
         await callback.message.edit_text(
@@ -193,19 +193,45 @@ async def cb_help_guard(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callback_query(F.data == "help:fsub")
-async def cb_help_fsub(callback: CallbackQuery, bot: Bot):
-    """Guide: Force Subscribe system (Requirement #3.4)."""
+@router.callback_query(F.data == "help:flood")
+async def cb_help_flood(callback: CallbackQuery, bot: Bot):
+    """Guide: Anti-flood and Bad words."""
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "📢 <b>Majburiy Obuna (Force Subscribe):</b>\n\n"
-        "Guruh a'zolarini sizning kanallaringizga obuna bo‘lishga undaydi:\n\n"
-        "1. Botni kanalingizga administrator etib tayinlang.\n"
-        "2. Guruhda <code>/settings</code> → <b>Majburiy obuna</b> bo‘limiga kiring.\n"
-        "3. Kanal qo‘shish tugmasini bosib, kanal havolasini yuboring.\n\n"
-        "Obuna bo‘lmagan foydalanuvchilar kanallarga a'zo bo‘lmaguncha guruhda xabar yoza olmaydi."
+        "⚡ <b>Anti-Flood va Taqiqlangan So‘zlar:</b>\n\n"
+        "• <b>Anti-Flood:</b> Bir foydalanuvchi qisqa vaqt ichida ketma-ket xabar yuborsa (standart: 5 soniyada 5 ta xabar), bot avtomatik cheklov qo‘yadi.\n"
+        "• <b>Anti-Repeat:</b> Bir xil matnni qayta-qayta yuboruvchi xabarlarni to‘xtatadi.\n"
+        "• <b>Taqiqlangan so‘zlar (Bad Words):</b> Haqoratli so‘zlar, 18+ va odobsiz so‘zlarni avtomatik o‘chiradi.\n"
+        "Adminlar o‘z guruhiga xos qo‘shimcha so‘zlar ro‘yxatini ham kiritishlari mumkin."
+    )
+    try:
+        await callback.message.edit_text(
+            text,
+            reply_markup=get_help_sub_keyboard(bot_username),
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "help:moderation")
+async def cb_help_moderation(callback: CallbackQuery, bot: Bot):
+    """Guide: Warnings, Mute, Kick, Ban."""
+    bot_info = await bot.get_me()
+    bot_username = bot_info.username or config.bot_username or "AnjurXBot"
+
+    text = (
+        "👮 <b>Moderatsiya: Warn, Mute va Ban tizimi:</b>\n\n"
+        "• <b>Ogohlantirish (Warn):</b> Qoidabuzarga avtomatik ogohlantirish beriladi. Belgilangan limit (masalan, 3 ta) to‘lganda jazo belgilanadi.\n"
+        "• <b>Ovozni o‘chirish (Mute):</b> Qoidabuzar ma'lum muddatga guruhda yozish huquqidan mahrum qilinadi.\n"
+        "• <b>Guruhdan haydash (Ban):</b> Eng qat'iy jazo — a'zo guruhdan butunlay chetlatiladi.\n\n"
+        "Adminlar quyidagi tezkor buyruqlardan foydalanishi mumkin (xabarga reply qilib):\n"
+        "• <code>/warn</code> — ogohlantirish berish\n"
+        "• <code>/mute 10m</code> — 10 daqiqaga ovozni o‘chirish\n"
+        "• <code>/unmute</code> — ovoz cheklovini bekor qilish"
     )
     try:
         await callback.message.edit_text(
@@ -220,16 +246,18 @@ async def cb_help_fsub(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data == "help:support")
 async def cb_help_support(callback: CallbackQuery, bot: Bot):
-    """Guide: Support and Super Admin info (Requirement #3.5)."""
+    """Guide: Support and Troubleshooting."""
     bot_info = await bot.get_me()
     bot_username = bot_info.username or config.bot_username or "AnjurXBot"
 
     text = (
-        "🆘 <b>Yordam va Aloqa markazi:</b>\n\n"
-        "Savollar, takliflar yoki texnik nosozliklar bo‘yicha murojaat qilishingiz mumkin:\n\n"
+        "❓ <b>Muammolarni hal qilish va Aloqa:</b>\n\n"
+        "<b>Bot xabarlarni o‘chirmayaptimi?</b>\n"
+        "1. Bot guruhda Administrator ekanini tekshiring.\n"
+        "2. Botga «Xabarlarni o‘chirish» (Delete messages) va «Foydalanuvchilarni cheklash» (Restrict members) huquqi berilganiga ishonch hosil qiling.\n"
+        "3. Guruhda <code>/setup</code> yoki <code>/settings</code> orqali filtrlar yoqilganini tekshiring.\n\n"
         "👤 <b>Super Administrator:</b> @usafes [8157452043]\n"
-        "🛡 <b>Bot yadrosi:</b> AnjurXBot Guard Engine 2026\n"
-        "🌐 <b>Veb Boshqaruv:</b> Faol"
+        "🛡 <b>Qorovul dvigateli:</b> AnjurXBot Guard Engine"
     )
     try:
         await callback.message.edit_text(

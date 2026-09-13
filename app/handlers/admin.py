@@ -19,18 +19,27 @@ from app.services.health_service import health_service
 from app.database.firestore import db
 from app.keyboards.settings import (
     get_group_settings_keyboard,
+    get_settings_general_keyboard,
+    get_settings_spam_keyboard,
+    get_settings_flood_keyboard,
+    get_settings_link_keyboard,
+    get_settings_ads_keyboard,
+    get_settings_badwords_keyboard,
+    get_settings_raid_keyboard,
+    get_settings_warns_keyboard,
+    get_settings_mute_keyboard,
+    get_settings_ban_keyboard,
+    get_settings_stats_keyboard,
+    get_settings_presets_keyboard,
     get_settings_guard_keyboard,
     get_settings_sec_keyboard,
-    get_settings_warns_keyboard,
     get_settings_srv_keyboard,
-    get_settings_presets_keyboard,
 )
 from app.keyboards.admin import (
     get_global_admin_keyboard,
     get_back_to_global_keyboard,
     get_back_to_settings_keyboard,
 )
-from app.keyboards.fsub import get_force_sub_admin_keyboard
 from app.keyboards.help import get_private_group_redirect_keyboard
 from app.handlers.admin_helpers import verify_admin_callback, extract_group_id_from_callback
 from app.config import config
@@ -105,7 +114,9 @@ async def cmd_settings(message: Message, bot: Bot):
     keyboard = get_group_settings_keyboard(chat_id)
     title = message.chat.title or f"Guruh {chat_id}"
     await message.reply(
-        f"⚙️ <b>GURUH SOZLAMALARI:</b> {title}\n"
+        f"🛡 <b>QOROVUL</b>\n\n"
+        f"Holat: 🟢 FAOL\n"
+        f"Guruh: <b>{title}</b>\n"
         f"ID: <code>{chat_id}</code>{warning_note}\n\n"
         f"Boshqarish uchun quyidagi bo‘limlardan birini tanlang:",
         reply_markup=keyboard,
@@ -148,43 +159,43 @@ async def cmd_status(message: Message, bot: Bot):
     )
 
     guard = group_config.get("guard_settings", {})
-    fsub = group_config.get("force_sub", {})
+    mod_stats = group_config.get("moderation_stats", {})
 
-    def _st(val: bool) -> str:
-        return "🟢 Yoqilgan" if val else "🔴 O‘chirilgan"
+    def _icon(val: bool) -> str:
+        return "🟢" if val else "🔴"
 
-    anti_link = _st(bool(guard.get("anti_link", True)))
-    anti_spam = _st(bool(guard.get("anti_spam", True)))
-    anti_ads = _st(bool(guard.get("anti_ads", True)))
-    anti_flood = _st(bool(guard.get("anti_flood", True)))
-    anti_repeat = _st(bool(guard.get("anti_repeat", True)))
-    bad_words = _st(bool(guard.get("bad_words_filter", True)))
-    srv_msg = _st(bool(guard.get("delete_service_messages", True)))
+    anti_spam_st = _icon(bool(guard.get("anti_spam", True)))
+    anti_flood_st = _icon(bool(guard.get("anti_flood", True)))
+    anti_link_st = _icon(bool(guard.get("anti_link", True)))
+    anti_ads_st = _icon(bool(guard.get("anti_ads", True)))
+    bad_words_st = _icon(bool(guard.get("bad_words_filter", True)))
 
-    flood_lim = guard.get("flood_limit", 5)
-    warn_lim = guard.get("warn_limit", 3)
-    punish = str(guard.get("punishment", "mute")).upper()
-
-    fsub_enabled = fsub.get("is_enabled", False)
-    fsub_channels = fsub.get("channels", [])
-    fsub_status = f"🟢 Yoqilgan ({len(fsub_channels)} ta kanal)" if fsub_enabled and fsub_channels else "🔴 O‘chirilgan"
+    # Real counts directly from Firestore
+    spam_cnt = mod_stats.get("spam", 0)
+    flood_cnt = mod_stats.get("flood", 0)
+    link_cnt = mod_stats.get("link", 0)
+    ads_cnt = mod_stats.get("ads", 0)
+    warn_cnt = mod_stats.get("warn", 0)
+    mute_cnt = mod_stats.get("mute", 0)
+    ban_cnt = mod_stats.get("ban", 0)
 
     title = message.chat.title or f"Guruh {chat_id}"
     status_text = (
-        f"📊 <b>Guruh Himoyasi Holati:</b> {title}\n"
+        f"🛡 <b>QOROVUL HOLATI:</b> {title}\n"
         f"ID: <code>{chat_id}</code>\n\n"
-        f"🛡 <b>Himoya filtrlari:</b>\n"
-        f"• Havolalar (Anti-Link): {anti_link}\n"
-        f"• Spam (Anti-Spam): {anti_spam}\n"
-        f"• Reklama (Anti-Ads): {anti_ads}\n"
-        f"• Tez yozish (Anti-Flood): {anti_flood} ({flood_lim} xabar / 5s)\n"
-        f"• Qayta xabar (Anti-Repeat): {anti_repeat}\n"
-        f"• So‘kish va 18+ filtri: {bad_words}\n"
-        f"• Xizmat xabarlarini tozalash: {srv_msg}\n\n"
-        f"🔔 <b>Jazo tizimi:</b>\n"
-        f"• Limit: <b>{warn_lim} ta ogohlantirish</b>\n"
-        f"• Jazo: <b>{punish}</b>\n\n"
-        f"📢 <b>Majburiy obuna:</b> {fsub_status}\n\n"
+        f"Anti-Spam: {anti_spam_st}\n"
+        f"Anti-Flood: {anti_flood_st}\n"
+        f"Anti-Link: {anti_link_st}\n"
+        f"Anti-Ads: {anti_ads_st}\n"
+        f"Bad Words: {bad_words_st}\n\n"
+        f"<b>Bugungi moderatsiya:</b>\n"
+        f"• Spam: {spam_cnt}\n"
+        f"• Flood: {flood_cnt}\n"
+        f"• Link: {link_cnt}\n"
+        f"• Ads: {ads_cnt}\n"
+        f"• Warn: {warn_cnt}\n"
+        f"• Mute: {mute_cnt}\n"
+        f"• Ban: {ban_cnt}\n\n"
         f"⚙️ Sozlamalarni o‘zgartirish uchun: /settings"
     )
 
@@ -224,9 +235,11 @@ async def cb_settings_menu(callback: CallbackQuery, bot: Bot):
     keyboard = get_group_settings_keyboard(group_id)
     chat_title = callback.message.chat.title if callback.message and callback.message.chat else f"Guruh {group_id}"
     text = (
-        f"⚙️ <b>GURUH SOZLAMALARI:</b> {chat_title}\n"
+        f"🛡 <b>QOROVUL</b>\n\n"
+        f"Holat: 🟢 FAOL\n"
+        f"Guruh: <b>{chat_title}</b>\n"
         f"ID: <code>{group_id}</code>\n\n"
-        f"Boshqarish uchun quyidagi bo'limlardan birini tanlang:"
+        f"Boshqarish uchun quyidagi bo‘limlardan birini tanlang:"
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -235,21 +248,90 @@ async def cb_settings_menu(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("settings:general:"))
+@router.callback_query(F.data.startswith("settings:srv:"))
+async def cb_settings_general(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard = group_config.get("guard_settings", {})
+    keyboard = get_settings_general_keyboard(group_id, guard)
+
+    text = (
+        "🛡 <b>Umumiy Himoya:</b>\n\n"
+        "• Yangi a'zolar nazorati: dastlabki 5 daqiqa ichida spam va linklarni avtomatik bloklaydi.\n"
+        "• Kirdi/Chiqdi xabarlari: guruhdagi ortiqcha service xabarlarni tozalaydi."
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:spam:"))
+async def cb_settings_spam(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard = group_config.get("guard_settings", {})
+    keyboard = get_settings_spam_keyboard(group_id, guard)
+
+    text = (
+        "🚫 <b>Spam Himoyasi:</b>\n\n"
+        "• Spam xabarlari, shubhali fishing va kripto firibgarliklarini aniqlash.\n"
+        "• Bir xil matnni qayta-qayta yuboruvchi spamerlarni avtomatik to'xtatish."
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:flood:"))
+async def cb_settings_flood(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard = group_config.get("guard_settings", {})
+    keyboard = get_settings_flood_keyboard(group_id, guard)
+
+    limit = guard.get("flood_limit", 5)
+    text = (
+        "🌊 <b>Anti-Flood Himoyasi:</b>\n\n"
+        f"Ketma-ket tez yozishni to'xtatadi. Hozirgi chegara: <b>{limit} ta xabar</b>.\n"
+        "O'zgartirish uchun tugmani bosing:"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:link:"))
 @router.callback_query(F.data.startswith("settings:guard:"))
 @router.callback_query(F.data.startswith("guard:menu:"))
-async def cb_settings_guard(callback: CallbackQuery, bot: Bot):
+async def cb_settings_link(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
         return
 
     group_config = await group_service.get_or_register_group(group_id)
     guard = group_config.get("guard_settings", {})
-    keyboard = get_settings_guard_keyboard(group_id, guard)
+    keyboard = get_settings_link_keyboard(group_id, guard)
 
     text = (
-        "🛡 <b>Moderatsiya sozlamalari:</b>\n\n"
-        "Guruhda xavfli havolalar, spam va reklamalarni nazorat qiling.\n"
-        "Kerakli filtrni yoqish yoki o'chirish uchun tugmani bosing:"
+        "🔗 <b>Link Himoyasi:</b>\n\n"
+        "Guruhga yuborilgan har qanday havolalar (t.me, http://, https://) avtomatik o'chiriladi.\n"
+        "Ishonchli saytlar uchun istisno ro'yxati (Allowed Domains) mavjud."
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -258,20 +340,66 @@ async def cb_settings_guard(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("settings:sec:"))
-async def cb_settings_sec(callback: CallbackQuery, bot: Bot):
+@router.callback_query(F.data.startswith("settings:ads:"))
+async def cb_settings_ads(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
         return
 
     group_config = await group_service.get_or_register_group(group_id)
     guard = group_config.get("guard_settings", {})
-    keyboard = get_settings_sec_keyboard(group_id, guard)
+    keyboard = get_settings_ads_keyboard(group_id, guard)
 
     text = (
-        "🔒 <b>Xavfsizlik va Filtr sozlamalari:</b>\n\n"
-        "Tez-tez yozish (Anti-Flood), bir xil xabarlarni qaytarish va "
-        "uyatsiz/haqoratli so'zlarni avtomatik tozalash tizimi:"
+        "📢 <b>Reklama Himoyasi:</b>\n\n"
+        "Telegram kanallar, guruhlar, botlar reklamasi va havolali postlar filtrlanadi."
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:badwords:"))
+@router.callback_query(F.data.startswith("settings:sec:"))
+async def cb_settings_badwords(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard = group_config.get("guard_settings", {})
+    keyboard = get_settings_badwords_keyboard(group_id, guard)
+
+    words_count = len(guard.get("bad_words", []))
+    text = (
+        "🤬 <b>Yomon So'zlar va 18+ Filtri:</b>\n\n"
+        f"Bazadagi taqiqlangan so'zlar: <b>{words_count} ta</b>.\n"
+        "Harflar o'rniga belgi qo'yib yozilgan so'kishlar ham aniqlanadi."
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:raid:"))
+async def cb_settings_raid(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard = group_config.get("guard_settings", {})
+    keyboard = get_settings_raid_keyboard(group_id, guard)
+
+    thresh = guard.get("raid_threshold", 10)
+    text = (
+        "🤖 <b>Raid va Botlar Hujumidan Himoya:</b>\n\n"
+        f"Guruhga bir vaqtda ko'p botlar yoki spamerlar qo'shilsa ({thresh} a'zo / 30s), "
+        "guruh avtomatik himoyalanadi va spamerlar bloklanadi."
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -295,11 +423,10 @@ async def cb_settings_warns(callback: CallbackQuery, bot: Bot):
     punishment = str(guard.get("punishment", "mute")).upper()
 
     text = (
-        "🔔 <b>Ogohlantirish va Jazo Tizimi:</b>\n\n"
-        f"• Ogohlantirish chegarasi: <b>{warn_limit} ta</b>\n"
+        "⚠️ <b>Ogohlantirish (Warn) Tizimi:</b>\n\n"
+        f"• Chegara: <b>{warn_limit} ta</b>\n"
         f"• Limit to'lgandagi jazo: <b>{punishment}</b>\n\n"
-        "Qoidani buzgan a'zo limitga yetganda avtomatik ravishda tanlangan jazo qo'llaniladi.\n"
-        "<i>Qo'lda ogohlantirish berish uchun uning xabariga reply qilib <code>/warn</code> yuboring.</i>"
+        "Qo'lda ogohlantirish berish uchun: a'zo xabariga reply qilib <code>/warn</code> yuboring."
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -308,20 +435,48 @@ async def cb_settings_warns(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("settings:srv:"))
-async def cb_settings_srv(callback: CallbackQuery, bot: Bot):
+@router.callback_query(F.data.startswith("settings:mute:"))
+async def cb_settings_mute(callback: CallbackQuery, bot: Bot):
     group_id = extract_group_id_from_callback(callback.data)
     if not await verify_admin_callback(callback, bot, group_id):
         return
 
     group_config = await group_service.get_or_register_group(group_id)
     guard = group_config.get("guard_settings", {})
-    keyboard = get_settings_srv_keyboard(group_id, guard)
+    keyboard = get_settings_mute_keyboard(group_id, guard)
+
+    dur = guard.get("mute_duration", 900)
+    mins = max(1, dur // 60)
 
     text = (
-        "👋 <b>Xizmat Xabarlari Sozlamalari:</b>\n\n"
-        "Guruhga yangi a'zo qo'shilganda yoki a'zo guruhdan chiqqanda paydo bo'ladigan "
-        "xizmat xabarlarini avtomatik o'chirib tashlash:"
+        "🔇 <b>Mute (Ovozni o'chirish) Boshqaruvi:</b>\n\n"
+        f"• Standart mute davomiyligi: <b>{mins} daqiqa</b>\n\n"
+        "Qo'lda mute qilish uchun a'zo xabariga reply qilib:\n"
+        "<code>/mute</code> (standart vaqt)\n"
+        "<code>/mute 30m</code> (30 daqiqa)\n"
+        "<code>/mute 2h</code> (2 soat)\n"
+        "Ovozni qaytarish uchun: <code>/unmute</code>"
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("settings:ban:"))
+async def cb_settings_ban(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    keyboard = get_settings_ban_keyboard(group_id)
+    text = (
+        "🔨 <b>Ban (Guruhdan haydash) Boshqaruvi:</b>\n\n"
+        "Qo'lda a'zoni bloklash uchun uning xabariga reply qilib:\n"
+        "<code>/ban</code> yuboring.\n\n"
+        "Bandan chiqarish uchun:\n"
+        "<code>/unban [USER_ID]</code> yuboring."
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -342,32 +497,7 @@ async def cb_settings_presets(callback: CallbackQuery, bot: Bot):
         "⚡️ <b>Tezkor Sozlash Rejimlari:</b>\n\n"
         "Barcha filtrlarni bir teginishda optimal darajada sozlang:\n\n"
         "• <b>Standart rejim:</b> Havola, spam va reklamalarni tozalash (Flood limiti: 5 ta).\n"
-        "• <b>Qat'iy rejim:</b> Barcha himoyalar + Qayta xabar + So'kish filtri (Flood: 3 ta, Jazo: Mute)."
-    )
-    try:
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception:
-        pass
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("settings:fsub:"))
-@router.callback_query(F.data.startswith("fsub:menu:"))
-async def cb_settings_fsub(callback: CallbackQuery, bot: Bot):
-    group_id = extract_group_id_from_callback(callback.data)
-    if not await verify_admin_callback(callback, bot, group_id):
-        return
-
-    group_config = await group_service.get_or_register_group(group_id)
-    fsub = group_config.get("force_sub", {})
-    channels = fsub.get("channels", [])
-    is_enabled = fsub.get("is_enabled", False)
-
-    keyboard = get_force_sub_admin_keyboard(group_id, channels, is_enabled)
-    text = (
-        "📢 <b>Majburiy Obuna (Force Subscribe) Sozlamalari:</b>\n\n"
-        "A'zolar guruhda xabar yozishi uchun ko'rsatilgan kanallarga obuna bo'lishi shart qilinadi.\n"
-        "<i>Eslatma: Bot biriktirilgan kanallarda administrator bo'lishi zarur!</i>"
+        "• <b>Qat'iy rejim:</b> Barcha himoyalar + Qayta xabar + So'kish filtri + Raid (Jazo: Mute)."
     )
     try:
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -830,6 +960,93 @@ async def cmd_unmute(message: Message, bot: Bot):
         await message.reply(f"🔊 <b>{target.first_name}</b> uchun cheklovlar bekor qilindi.", parse_mode="HTML")
     else:
         await message.reply("❌ Cheklovni bekor qilishda xatolik yuz berdi.")
+
+
+@router.message(Command("ban"))
+async def cmd_ban(message: Message, bot: Bot):
+    if message.chat.type not in ("group", "supergroup"):
+        return
+
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
+    user_id = message.from_user.id if message.from_user else 0
+    username = message.from_user.username if message.from_user else None
+
+    if not await permission_service.is_user_admin(
+        bot,
+        message.chat.id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat,
+        force_fresh=True,
+    ):
+        await message.reply("⛔ Bu amal faqat guruh adminlari uchun.")
+        return
+
+    if not message.reply_to_message or not message.reply_to_message.from_user:
+        await message.reply("⚠️ Foydalanuvchini ban qilish uchun uning xabariga reply qiling.")
+        return
+
+    target = message.reply_to_message.from_user
+    if target.is_bot and target.id == bot.id:
+        return
+
+    if await permission_service.is_user_admin(bot, message.chat.id, target.id, username=target.username, chat=message.chat):
+        await message.reply("Adminlarni ban qilib bo‘lmaydi.")
+        return
+
+    success = await moderation_service.ban_user(bot, message.chat.id, target.id)
+    if success:
+        await group_service.increment_group_stat(message.chat.id, "ban")
+        await message.reply(f"🔨 <b>{target.first_name}</b> guruhdan bloklandi (Ban).", parse_mode="HTML")
+    else:
+        await message.reply("❌ Foydalanuvchini bloklab bo‘lmadi. Botda administrator huquqi borligini tekshiring.")
+
+
+@router.message(Command("unban"))
+async def cmd_unban(message: Message, bot: Bot):
+    if message.chat.type not in ("group", "supergroup"):
+        return
+
+    sender_chat_id = message.sender_chat.id if message.sender_chat else None
+    sender_chat_username = message.sender_chat.username if message.sender_chat else None
+    user_id = message.from_user.id if message.from_user else 0
+    username = message.from_user.username if message.from_user else None
+
+    if not await permission_service.is_user_admin(
+        bot,
+        message.chat.id,
+        user_id,
+        username=username,
+        sender_chat_id=sender_chat_id,
+        sender_chat_username=sender_chat_username,
+        chat=message.chat,
+        force_fresh=True,
+    ):
+        await message.reply("⛔ Bu amal faqat guruh adminlari uchun.")
+        return
+
+    target_id = None
+    target_name = "Foydalanuvchi"
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name or "Foydalanuvchi"
+    else:
+        args = message.text.split()[1:] if message.text else []
+        if args and args[0].isdigit():
+            target_id = int(args[0])
+
+    if not target_id:
+        await message.reply("⚠️ Foydalanuvchini bandan chiqarish uchun uning xabariga reply qiling yoki Telegram ID raqamini yozing: <code>/unban 12345678</code>", parse_mode="HTML")
+        return
+
+    success = await moderation_service.unban_user(bot, message.chat.id, target_id)
+    if success:
+        await message.reply(f"✅ <b>{target_name}</b> (<code>{target_id}</code>) blokdan chiqarildi.", parse_mode="HTML")
+    else:
+        await message.reply("❌ Foydalanuvchini blokdan chiqarib bo‘lmadi.")
 
 
 @router.callback_query(F.data == "common:close")

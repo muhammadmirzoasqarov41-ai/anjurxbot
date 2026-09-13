@@ -11,13 +11,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import config
 from app.middlewares.dedup import DedupMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
-from app.middlewares.fsub_middleware import ForceSubscribeMiddleware
 from app.middlewares.guard_middleware import GuardMiddleware
 
 from app.handlers.start import router as start_router
 from app.handlers.setup import router as setup_router
 from app.handlers.guard import router as guard_router
-from app.handlers.fsub import router as fsub_router
 from app.handlers.admin import router as admin_router
 from app.handlers.member import router as member_router
 from app.handlers.errors import router as errors_router
@@ -49,17 +47,13 @@ def create_dispatcher() -> Dispatcher:
     dp.message.middleware(RateLimitMiddleware())
     dp.callback_query.middleware(RateLimitMiddleware())
 
-    # 3. Force Subscribe check middleware (before guard)
-    dp.message.middleware(ForceSubscribeMiddleware())
-
-    # 4. Guard & spam/flood/link filter middleware
+    # 3. Guard & spam/flood/link filter middleware (Qorovul)
     dp.message.middleware(GuardMiddleware())
 
-    # 5. Handlers routers
+    # 4. Handlers routers
     dp.include_router(start_router)
     dp.include_router(setup_router)
     dp.include_router(guard_router)
-    dp.include_router(fsub_router)
     dp.include_router(admin_router)
     dp.include_router(member_router)
     dp.include_router(errors_router)

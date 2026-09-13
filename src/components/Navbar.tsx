@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Users, Radio, AlertTriangle, PlayCircle, BarChart3, Terminal, UserCheck, RefreshCw } from 'lucide-react';
+import { Shield, Users, AlertTriangle, PlayCircle, BarChart3, Terminal, UserCheck, RefreshCw } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: string;
@@ -21,7 +21,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'guard', label: 'Guruhlar & Qorovul', icon: Shield },
     { id: 'users', label: 'Foydalanuvchilar', icon: Users },
     { id: 'moderation', label: 'Moderatsiya Jurnali', icon: AlertTriangle },
-    { id: 'fsub', label: 'Majburiy Obuna', icon: Radio },
     { id: 'simulator', label: 'Qorovul Sinovchi', icon: PlayCircle },
   ];
 
@@ -38,11 +37,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center gap-2">
                 <span className="font-bold text-base text-white tracking-wider">ANJURX_BOT</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#00ff66]/10 text-[#00ff66] border border-[#00ff66]/30 font-semibold">
-                  CONTROL_CENTER
+                  QOROVUL_CENTER
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 hidden sm:block">
-                Cyber Defense & Force Subscribe Architecture
+                Telegram Guruhingizning Qorovuli (Group Guard & Protection System)
               </p>
             </div>
           </div>

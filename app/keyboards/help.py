@@ -1,5 +1,5 @@
 """
-Help and Guide inline keyboards.
+Help and Guide inline keyboards for AnjurXBot Qorovul.
 Provides scannable submenus for onboarding, commands, guard, and settings.
 """
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -31,37 +31,43 @@ def get_start_keyboard(bot_username: str) -> InlineKeyboardMarkup:
 
 
 def get_help_menu_keyboard(bot_username: str) -> InlineKeyboardMarkup:
-    """Returns the Help Center navigation menu keyboard."""
+    """Returns the Qorovul Help Center navigation menu keyboard."""
     add_url = f"https://t.me/{bot_username}?startgroup=true&admin=delete_messages+restrict_members+invite_users"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚀 Boshlash va Guruhga ulash",
+                    text="🛡 Qorovul nima va qanday ulanadi?",
                     callback_data="help:start"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="⚙️ Sozlash (/setup va /settings)",
+                    text="⚙️ Guruhni sozlash (/setup va /settings)",
                     callback_data="help:setup"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="🛡 Himoya va Moderatsiya",
-                    callback_data="help:guard"
+                    text="🔗 Anti-Link, Anti-Spam va Anti-Ads",
+                    callback_data="help:links"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="📢 Majburiy Obuna (Force Sub)",
-                    callback_data="help:fsub"
+                    text="⚡ Anti-Flood va Bad Words (So'kish)",
+                    callback_data="help:flood"
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="🆘 Yordam va Aloqa",
+                    text="👮 Moderatsiya: Warn / Mute / Ban",
+                    callback_data="help:moderation"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="❓ Muammolarni hal qilish va Aloqa",
                     callback_data="help:support"
                 ),
             ],

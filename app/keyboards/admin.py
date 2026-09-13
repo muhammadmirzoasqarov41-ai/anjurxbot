@@ -11,15 +11,14 @@ def get_admin_panel_keyboard(group_id: int = 0) -> InlineKeyboardMarkup:
     gid_str = str(group_id)
     keyboard = [
         [
-            InlineKeyboardButton(text="🛡 Moderatsiya va Himoya", callback_data=f"guard:menu:{gid_str}"),
-            InlineKeyboardButton(text="📢 Majburiy obuna", callback_data=f"fsub:menu:{gid_str}"),
-        ],
-        [
+            InlineKeyboardButton(text="🛡 Qorovul Himoyasi", callback_data=f"guard:menu:{gid_str}"),
             InlineKeyboardButton(text="⚠️ Ogohlantirishlar (Warn)", callback_data=f"admin:warns:{gid_str}"),
-            InlineKeyboardButton(text="📊 Guruh statistikasi", callback_data=f"admin:stats:{gid_str}"),
         ],
         [
+            InlineKeyboardButton(text="📊 Guruh statistikasi", callback_data=f"admin:stats:{gid_str}"),
             InlineKeyboardButton(text="⚡️ Tezkor sozlash", callback_data=f"setup:menu:{gid_str}"),
+        ],
+        [
             get_close_button(),
         ],
     ]

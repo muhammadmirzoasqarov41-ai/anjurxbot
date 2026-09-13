@@ -103,7 +103,7 @@ class FirebaseService:
         doc_id = str(group_id)
         group = await db.get_document("groups", doc_id)
         if not group:
-            group = {"group_id": int(group_id), "chat_id": int(group_id), "guard_settings": {}, "force_sub": {}}
+            group = {"group_id": int(group_id), "chat_id": int(group_id), "guard_settings": {}, "moderation_stats": {}}
 
         # Parse nested paths e.g. "guard_settings.anti_link"
         parts = key_path.split(".")

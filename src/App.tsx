@@ -3,10 +3,9 @@ import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { UsersView } from './components/UsersView';
 import { GuardView } from './components/GuardView';
-import { ForceSubView } from './components/ForceSubView';
 import { ModerationView } from './components/ModerationView';
 import { SimulatorView } from './components/SimulatorView';
-import { TelegramUser, TelegramGroup, ModerationLog, SystemStats, GuardSettings, ForceSubChannel } from './types';
+import { TelegramUser, TelegramGroup, ModerationLog, SystemStats, GuardSettings } from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -172,37 +171,6 @@ export default function App() {
     }
   };
 
-  const handleAddChannel = async (groupId: string, channel: Partial<ForceSubChannel>) => {
-    try {
-      const res = await fetch(`/api/admin/groups/${groupId}/fsub`, {
-        method: 'POST',
-        headers: getHeaders(),
-        credentials: 'include',
-        body: JSON.stringify(channel),
-      });
-      if (res.ok) {
-        await loadGroups();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleRemoveChannel = async (groupId: string, channelId: string | number) => {
-    try {
-      const res = await fetch(`/api/admin/groups/${groupId}/fsub/${channelId}`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-        credentials: 'include',
-      });
-      if (res.ok) {
-        await loadGroups();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   const handleSimulateMessage = async (groupId: number, text: string, username: string) => {
     try {
       const res = await fetch('/api/bot/simulate', {
@@ -267,14 +235,6 @@ export default function App() {
 
         {activeTab === 'guard' && (
           <GuardView groups={groups} onUpdateGuard={handleUpdateGuard} />
-        )}
-
-        {activeTab === 'fsub' && (
-          <ForceSubView
-            groups={groups}
-            onAddChannel={handleAddChannel}
-            onRemoveChannel={handleRemoveChannel}
-          />
         )}
 
         {activeTab === 'moderation' && (

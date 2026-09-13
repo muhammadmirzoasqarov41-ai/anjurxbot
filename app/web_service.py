@@ -323,58 +323,6 @@ async def handle_admin_group_guard_update(request: web.Request) -> web.Response:
     return web.json_response({"error": "Failed to update guard settings"}, status=500)
 
 
-@require_admin
-async def handle_admin_group_fsub(request: web.Request) -> web.Response:
-    """Handles Force Subscribe channels for a group."""
-    group_id = request.match_info.get("id")
-    group = await db.get_document("groups", group_id)
-    if not group:
-        return web.json_response({"error": "Group not found"}, status=404)
-
-    if request.method == "GET":
-        return web.json_response({"channels": group.get("fsub_channels", [])})
-
-    if request.method == "POST":
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"error": "Invalid JSON"}, status=400)
-
-        channels = group.get("fsub_channels", [])
-        channel_id = str(body.get("channel_id", "")).strip()
-        username = str(body.get("username", "")).strip()
-
-        # Deduplicate
-        existing = next((c for c in channels if str(c.get("channel_id")) == channel_id or c.get("username") == username), None)
-        if not existing:
-            channels.append({
-                "channel_id": channel_id,
-                "username": username,
-                "title": body.get("title", username),
-                "is_active": True,
-                "invite_link": body.get("invite_link", "")
-            })
-            await db.update_document("groups", group_id, {"fsub_channels": channels})
-
-        return web.json_response({"status": "ok", "channels": channels})
-
-    return web.json_response({"error": "Method not allowed"}, status=405)
-
-
-@require_admin
-async def handle_admin_group_fsub_delete(request: web.Request) -> web.Response:
-    """Removes a force subscribe channel from a group."""
-    group_id = request.match_info.get("id")
-    channel_id = request.match_info.get("channel_id")
-    group = await db.get_document("groups", group_id)
-    if not group:
-        return web.json_response({"error": "Group not found"}, status=404)
-
-    channels = group.get("fsub_channels", [])
-    updated_channels = [c for c in channels if str(c.get("channel_id")) != str(channel_id) and c.get("username") != str(channel_id)]
-    await db.update_document("groups", group_id, {"fsub_channels": updated_channels})
-    return web.json_response({"status": "ok", "channels": updated_channels})
-
 
 @require_admin
 async def handle_admin_users(request: web.Request) -> web.Response:
@@ -936,7 +884,6 @@ def get_fallback_spa_html() -> str:
           <button class="nav-tab" onclick="switchTab('tab-guard')">🛡️ Guruhlar & Qorovul</button>
           <button class="nav-tab" onclick="switchTab('tab-users')">👥 Foydalanuvchilar</button>
           <button class="nav-tab" onclick="switchTab('tab-logs')">📜 Xavfsizlik Jurnali</button>
-          <button class="nav-tab" onclick="switchTab('tab-fsub')">📢 Majburiy Obuna</button>
           <button class="nav-tab" onclick="switchTab('tab-simulator')">🧪 Xabar Sinovchi</button>
         </nav>
 
@@ -1171,58 +1118,7 @@ def get_fallback_spa_html() -> str:
         </div>
       </div>
 
-      <!-- TAB 5: FORCE SUBSCRIBE -->
-      <div id="tab-fsub" class="tab-pane">
-        <div class="cyber-box">
-          <div class="box-header">
-            <span class="box-title">Majburiy Obuna Kanallarini Biriktirish</span>
-            <select id="fsub-group-select" style="max-width: 320px;" onchange="onFSubGroupSelected()"></select>
-          </div>
-
-          <div style="margin-bottom: 24px;">
-            <h4 style="font-size: 13px; color: #fff; margin-bottom: 12px;">Biriktirilgan Kanallar Ro'yxati</h4>
-            <table class="cyber-table">
-              <thead>
-                <tr>
-                  <th>Kanal ID</th>
-                  <th>Username</th>
-                  <th>Sarlavha</th>
-                  <th>Havola</th>
-                  <th>Amal</th>
-                </tr>
-              </thead>
-              <tbody id="fsub-table-body">
-                <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Biriktirilgan kanallar mavjud emas</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div style="background: #06090e; padding: 20px; border-radius: 8px; border: 1px solid var(--panel-border);">
-            <h4 style="font-size: 13px; color: var(--neon); margin-bottom: 14px;">+ Yangi Majburiy Kanal Qo'shish</h4>
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
-              <div class="form-group">
-                <label>Kanal ID (masalan: -100192837465)</label>
-                <input type="text" id="fsub-new-id" placeholder="-1001234567890">
-              </div>
-              <div class="form-group">
-                <label>Kanal Username</label>
-                <input type="text" id="fsub-new-username" placeholder="@kanal_nomi">
-              </div>
-              <div class="form-group">
-                <label>Kanal Sarlavhasi</label>
-                <input type="text" id="fsub-new-title" placeholder="Rasmiy Kanal">
-              </div>
-              <div class="form-group">
-                <label>Taklif Havolasi (Invite link)</label>
-                <input type="text" id="fsub-new-link" placeholder="https://t.me/kanal_nomi">
-              </div>
-            </div>
-            <button class="btn-cyber" onclick="addFSubChannel()" style="max-width: 240px;">KANALNI BIRIKTIRISH</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 6: SIMULATOR -->
+      <!-- TAB 5: SIMULATOR -->
       <div id="tab-simulator" class="tab-pane">
         <div class="cyber-box" style="max-width: 700px; margin: 0 auto;">
           <div class="box-header">
@@ -1396,7 +1292,6 @@ def get_fallback_spa_html() -> str:
           renderDashboardGroups();
           renderGroupSelectors();
           onGuardGroupSelected();
-          onFSubGroupSelected();
         }
       } catch (e) {}
     }
@@ -1421,7 +1316,6 @@ def get_fallback_spa_html() -> str:
     function renderGroupSelectors() {
       const options = appState.groups.map(g => `<option value="${g._id || g.group_id}">${g.title || 'Guruh ' + g.group_id}</option>`).join('');
       document.getElementById('guard-group-select').innerHTML = options;
-      document.getElementById('fsub-group-select').innerHTML = options;
       document.getElementById('sim-group-select').innerHTML = options;
     }
 
@@ -1561,68 +1455,6 @@ def get_fallback_spa_html() -> str:
       `).join('');
     }
 
-    function onFSubGroupSelected() {
-      const val = document.getElementById('fsub-group-select').value;
-      const group = appState.groups.find(g => (g._id === val || String(g.group_id) === val));
-      const tbody = document.getElementById('fsub-table-body');
-      if (!group || !group.fsub_channels || !group.fsub_channels.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-muted);">Biriktirilgan kanallar mavjud emas</td></tr>';
-        return;
-      }
-      tbody.innerHTML = group.fsub_channels.map(c => `
-        <tr>
-          <td>${c.channel_id}</td>
-          <td>${c.username ? '@' + c.username : '-'}</td>
-          <td>${c.title || 'Kanal'}</td>
-          <td><a href="${c.invite_link}" target="_blank" style="color:var(--neon);">${c.invite_link}</a></td>
-          <td><button class="action-btn danger" onclick="removeFSubChannel('${group._id || group.group_id}', '${c.channel_id}')">O'chirish</button></td>
-        </tr>
-      `).join('');
-    }
-
-    async function addFSubChannel() {
-      const groupId = document.getElementById('fsub-group-select').value;
-      const chId = document.getElementById('fsub-new-id').value.trim();
-      const username = document.getElementById('fsub-new-username').value.trim();
-      const title = document.getElementById('fsub-new-title').value.trim();
-      const link = document.getElementById('fsub-new-link').value.trim();
-      if (!chId) { alert('Kanal ID kiritilishi shart'); return; }
-
-      try {
-        const res = await fetch('/api/admin/groups/' + groupId + '/fsub', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          credentials: 'include',
-          body: JSON.stringify({
-            channel_id: chId,
-            username: username.replace(/^@/, ''),
-            title: title || 'Kanal',
-            invite_link: link || (username ? 'https://t.me/' + username.replace(/^@/, '') : '')
-          })
-        });
-        if (res.ok) {
-          alert('Kanal biriktirildi!');
-          document.getElementById('fsub-new-id').value = '';
-          document.getElementById('fsub-new-username').value = '';
-          document.getElementById('fsub-new-title').value = '';
-          document.getElementById('fsub-new-link').value = '';
-          loadGroups();
-        }
-      } catch (e) { alert('Xatolik: ' + e.message); }
-    }
-
-    async function removeFSubChannel(groupId, channelId) {
-      if (!confirm('Ushbu kanal majburiy obunadan chiqarilsinmi?')) return;
-      try {
-        const res = await fetch('/api/admin/groups/' + groupId + '/fsub/' + channelId, {
-          method: 'DELETE',
-          headers: getAuthHeaders(),
-          credentials: 'include'
-        });
-        if (res.ok) loadGroups();
-      } catch (e) {}
-    }
-
     async function simulateTestMessage() {
       const gid = document.getElementById('sim-group-select').value;
       const user = document.getElementById('sim-username').value.trim();
@@ -1709,9 +1541,6 @@ def create_web_app() -> web.Application:
     app.router.add_get("/api/groups", handle_admin_groups)
     app.router.add_get("/api/admin/groups/{id}", handle_admin_group_detail)
     app.router.add_put("/api/admin/groups/{id}/guard", handle_admin_group_guard_update)
-    app.router.add_get("/api/admin/groups/{id}/fsub", handle_admin_group_fsub)
-    app.router.add_post("/api/admin/groups/{id}/fsub", handle_admin_group_fsub)
-    app.router.add_delete("/api/admin/groups/{id}/fsub/{channel_id}", handle_admin_group_fsub_delete)
     app.router.add_get("/api/admin/users", handle_admin_users)
     app.router.add_get("/api/users", handle_admin_users)
     app.router.add_get("/api/admin/logs", handle_admin_logs)

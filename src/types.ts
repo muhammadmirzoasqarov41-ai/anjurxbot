@@ -26,14 +26,6 @@ export interface GuardSettings {
   bad_words_list: string[];
 }
 
-export interface ForceSubChannel {
-  channel_id: string | number;
-  username: string;
-  title: string;
-  invite_link?: string;
-  is_active: boolean;
-}
-
 export interface TelegramGroup {
   _id: string;
   group_id: number;
@@ -63,7 +55,6 @@ export interface TelegramGroup {
   is_active?: boolean;
   bot_status?: string;
   guard: GuardSettings;
-  fsub_channels: ForceSubChannel[];
   created_at: string;
 }
 
@@ -83,8 +74,10 @@ export interface SystemStats {
   total_groups: number;
   active_guard_groups: number;
   messages_scanned: number;
-  spam_blocked: number;
-  links_deleted: number;
-  warnings_issued: number;
-  uptime_seconds: number;
+  violations_blocked: number;
+  spams_prevented: number;
+  links_removed: number;
+  uptime_seconds?: number;
+  spam_blocked?: number;
+  links_deleted?: number;
 }

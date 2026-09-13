@@ -1,22 +1,30 @@
 """
 Guard settings and configuration handlers.
-Allows group admins to toggle filters and adjust thresholds.
+Allows group admins to toggle filters and adjust thresholds with one-tap inline controls.
 """
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from app.services.permission_service import permission_service
 from app.services.group_service import group_service
-from app.keyboards.guard import get_guard_settings_keyboard
 from app.keyboards.settings import (
-    get_settings_guard_keyboard,
-    get_settings_sec_keyboard,
+    get_group_settings_keyboard,
+    get_settings_general_keyboard,
+    get_settings_spam_keyboard,
+    get_settings_flood_keyboard,
+    get_settings_link_keyboard,
+    get_settings_ads_keyboard,
+    get_settings_badwords_keyboard,
+    get_settings_raid_keyboard,
     get_settings_warns_keyboard,
-    get_settings_srv_keyboard,
+    get_settings_mute_keyboard,
+    get_settings_ban_keyboard,
+    get_settings_stats_keyboard,
+    get_settings_presets_keyboard,
 )
-from app.states.admin_states import BadWordsState, FloodThresholdState, WarningLimitState
+from app.states.admin_states import BadWordsState
 from app.handlers.admin_helpers import verify_admin_callback, extract_group_id_from_callback
 
 router = Router(name="guard_router")
@@ -53,12 +61,12 @@ async def cmd_guard(message: Message, bot: Bot):
     if not is_admin:
         await message.reply("❌ Bu sozlama faqat guruh adminlari uchun ruxsat etilgan.")
         return
-    guard_settings = group_config.get("guard_settings", {})
-    keyboard = get_guard_settings_keyboard(chat_id, guard_settings)
 
+    keyboard = get_group_settings_keyboard(chat_id)
     await message.reply(
-        "🛡 <b>Guruh Himoyasi Sozlamalari:</b>\n\n"
-        "Tugmalar orqali filtrlarni yoqishingiz yoki o'chirishingiz mumkin:",
+        "🛡 <b>QOROVUL</b>\n\n"
+        "Holat: 🟢 FAOL\n\n"
+        "Boshqarish uchun quyidagi bo‘limlardan birini tanlang:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -73,14 +81,12 @@ async def cb_guard_menu(callback: CallbackQuery, bot: Bot):
     if not await verify_admin_callback(callback, bot, group_id):
         return
 
-    group_config = await group_service.get_or_register_group(group_id)
-    guard_settings = group_config.get("guard_settings", {})
-    keyboard = get_guard_settings_keyboard(group_id, guard_settings)
-
+    keyboard = get_group_settings_keyboard(group_id)
     try:
         await callback.message.edit_text(
-            "🛡 <b>Guruh Himoyasi Sozlamalari:</b>\n\n"
-            "Tugmalar orqali filtrlarni yoqishingiz yoki o'chirishingiz mumkin:",
+            "🛡 <b>QOROVUL</b>\n\n"
+            "Holat: 🟢 FAOL\n\n"
+            "Boshqarish uchun quyidagi bo‘limlardan birini tanlang:",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -98,7 +104,7 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
 
     group_id = int(parts[2])
     setting_key = parts[3]
-    subview = parts[4] if len(parts) > 4 else None
+    subview = parts[4] if len(parts) > 4 else "menu"
 
     if not await verify_admin_callback(callback, bot, group_id):
         return
@@ -111,16 +117,26 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
     await group_service.update_guard_setting(group_id, setting_key, new_val)
     guard_settings[setting_key] = new_val
 
-    if subview == "guard":
-        keyboard = get_settings_guard_keyboard(group_id, guard_settings)
-    elif subview == "sec":
-        keyboard = get_settings_sec_keyboard(group_id, guard_settings)
-    elif subview == "srv":
-        keyboard = get_settings_srv_keyboard(group_id, guard_settings)
+    if subview == "general":
+        keyboard = get_settings_general_keyboard(group_id, guard_settings)
+    elif subview == "spam":
+        keyboard = get_settings_spam_keyboard(group_id, guard_settings)
+    elif subview == "flood":
+        keyboard = get_settings_flood_keyboard(group_id, guard_settings)
+    elif subview == "link":
+        keyboard = get_settings_link_keyboard(group_id, guard_settings)
+    elif subview == "ads":
+        keyboard = get_settings_ads_keyboard(group_id, guard_settings)
+    elif subview == "badwords":
+        keyboard = get_settings_badwords_keyboard(group_id, guard_settings)
+    elif subview == "raid":
+        keyboard = get_settings_raid_keyboard(group_id, guard_settings)
     elif subview == "warns":
         keyboard = get_settings_warns_keyboard(group_id, guard_settings)
+    elif subview == "mute":
+        keyboard = get_settings_mute_keyboard(group_id, guard_settings)
     else:
-        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
+        keyboard = get_group_settings_keyboard(group_id)
 
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
@@ -128,15 +144,17 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
         pass
 
     name_map = {
-        "anti_link": "Anti-Link",
-        "anti_spam": "Anti-Spam",
-        "anti_ads": "Anti-Ads",
+        "anti_link": "Linklarni bloklash",
+        "anti_spam": "Spam filtri",
+        "anti_ads": "Reklama filtri",
         "anti_flood": "Anti-Flood",
-        "anti_repeat": "Anti-Repeat",
+        "anti_repeat": "Qayta xabar filtri",
         "bad_words_filter": "So'kish filtri",
-        "delete_service_messages": "Kirdi/Chiqdi tozalash",
+        "raid_protection": "Raid himoyasi",
+        "new_member_protection": "Yangi a'zolar nazorati",
+        "delete_service_messages": "Kirdi/Chiqdi xabarlarini tozalash",
     }
-    label = name_map.get(setting_key, setting_key.replace('_', ' ').capitalize())
+    label = name_map.get(setting_key, setting_key)
     notification = f"🟢 {label} yoqildi" if new_val else f"🔴 {label} o'chirildi"
     await callback.answer(notification)
 
@@ -145,7 +163,7 @@ async def cb_guard_toggle(callback: CallbackQuery, bot: Bot):
 async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     parts = callback.data.split(":")
     group_id = int(parts[2]) if len(parts) > 2 and (parts[2].isdigit() or (parts[2].startswith("-") and parts[2][1:].isdigit())) else extract_group_id_from_callback(callback.data)
-    subview = parts[3] if len(parts) > 3 else None
+    subview = parts[3] if len(parts) > 3 else "warns"
 
     if not await verify_admin_callback(callback, bot, group_id):
         return
@@ -160,16 +178,119 @@ async def cb_cycle_punishment(callback: CallbackQuery, bot: Bot):
     await group_service.update_guard_setting(group_id, "punishment", new_punish)
     guard_settings["punishment"] = new_punish
 
-    if subview == "warns":
-        keyboard = get_settings_warns_keyboard(group_id, guard_settings)
-    else:
-        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
-
+    keyboard = get_settings_warns_keyboard(group_id, guard_settings)
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
         pass
-    await callback.answer(f"Jazo turi o'zgartirildi: {new_punish.upper()}")
+    await callback.answer(f"Jazo turi: {new_punish.upper()}")
+
+
+@router.callback_query(F.data.startswith("guard:cycle_flood:"))
+async def cb_cycle_flood(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    group_id = int(parts[2])
+    subview = parts[3] if len(parts) > 3 else "flood"
+
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard_settings = group_config.get("guard_settings", {})
+    current = int(guard_settings.get("flood_limit", 5))
+
+    flood_cycle = {3: 5, 5: 7, 7: 10, 10: 3}
+    new_val = flood_cycle.get(current, 5)
+
+    await group_service.update_guard_setting(group_id, "flood_limit", new_val)
+    guard_settings["flood_limit"] = new_val
+
+    keyboard = get_settings_flood_keyboard(group_id, guard_settings)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except Exception:
+        pass
+    await callback.answer(f"Flood chegarasi: {new_val} ta xabar")
+
+
+@router.callback_query(F.data.startswith("guard:cycle_bad_action:"))
+async def cb_cycle_bad_action(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    group_id = int(parts[2])
+
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard_settings = group_config.get("guard_settings", {})
+    current = guard_settings.get("bad_words_action", "delete")
+
+    action_cycle = {"delete": "warn", "warn": "mute", "mute": "delete"}
+    new_action = action_cycle.get(current, "delete")
+
+    await group_service.update_guard_setting(group_id, "bad_words_action", new_action)
+    guard_settings["bad_words_action"] = new_action
+
+    keyboard = get_settings_badwords_keyboard(group_id, guard_settings)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except Exception:
+        pass
+    labels = {"delete": "O'chirish", "warn": "Ogohlantirish", "mute": "Mute"}
+    await callback.answer(f"Harakat: {labels.get(new_action, new_action)}")
+
+
+@router.callback_query(F.data.startswith("guard:cycle_raid_thresh:"))
+async def cb_cycle_raid_thresh(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    group_id = int(parts[2])
+
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard_settings = group_config.get("guard_settings", {})
+    current = int(guard_settings.get("raid_threshold", 10))
+
+    cycle = {5: 10, 10: 20, 20: 5}
+    new_val = cycle.get(current, 10)
+
+    await group_service.update_guard_setting(group_id, "raid_threshold", new_val)
+    guard_settings["raid_threshold"] = new_val
+
+    keyboard = get_settings_raid_keyboard(group_id, guard_settings)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except Exception:
+        pass
+    await callback.answer(f"Raid sezgirligi: {new_val} a'zo / 30s")
+
+
+@router.callback_query(F.data.startswith("guard:cycle_mute_dur:"))
+async def cb_cycle_mute_dur(callback: CallbackQuery, bot: Bot):
+    parts = callback.data.split(":")
+    group_id = int(parts[2])
+
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    guard_settings = group_config.get("guard_settings", {})
+    current = int(guard_settings.get("mute_duration", 900))
+
+    cycle = {300: 900, 900: 3600, 3600: 86400, 86400: 300}
+    new_val = cycle.get(current, 900)
+
+    await group_service.update_guard_setting(group_id, "mute_duration", new_val)
+    guard_settings["mute_duration"] = new_val
+
+    keyboard = get_settings_mute_keyboard(group_id, guard_settings)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    except Exception:
+        pass
+    mins = max(1, new_val // 60)
+    await callback.answer(f"Mute muddati: {mins} daqiqa")
 
 
 @router.callback_query(F.data.startswith("guard:threshold:"))
@@ -181,7 +302,7 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
 
     group_id = int(parts[2])
     target_type = parts[3]
-    subview = parts[4] if len(parts) > 4 else None
+    subview = parts[4] if len(parts) > 4 else "warns"
 
     if not await verify_admin_callback(callback, bot, group_id):
         return
@@ -189,14 +310,7 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
     group_config = await group_service.get_or_register_group(group_id)
     guard_settings = group_config.get("guard_settings", {})
 
-    if target_type == "flood":
-        current = int(guard_settings.get("flood_limit", 5))
-        flood_cycle = {3: 5, 5: 7, 7: 10, 10: 3}
-        new_val = flood_cycle.get(current, 5)
-        await group_service.update_guard_setting(group_id, "flood_limit", new_val)
-        guard_settings["flood_limit"] = new_val
-        msg = f"Flood chegarasi: {new_val} ta xabar"
-    elif target_type == "warn":
+    if target_type == "warn":
         current = int(guard_settings.get("warn_limit", 3))
         warn_cycle = {2: 3, 3: 5, 5: 2}
         new_val = warn_cycle.get(current, 3)
@@ -207,18 +321,39 @@ async def cb_guard_threshold(callback: CallbackQuery, bot: Bot):
         await callback.answer()
         return
 
-    if subview == "sec":
-        keyboard = get_settings_sec_keyboard(group_id, guard_settings)
-    elif subview == "warns":
-        keyboard = get_settings_warns_keyboard(group_id, guard_settings)
-    else:
-        keyboard = get_guard_settings_keyboard(group_id, guard_settings)
-
+    keyboard = get_settings_warns_keyboard(group_id, guard_settings)
     try:
         await callback.message.edit_reply_markup(reply_markup=keyboard)
     except Exception:
         pass
     await callback.answer(msg)
+
+
+@router.callback_query(F.data.startswith("guard:allowed_domains:"))
+async def cb_allowed_domains(callback: CallbackQuery, bot: Bot):
+    group_id = extract_group_id_from_callback(callback.data)
+    if not await verify_admin_callback(callback, bot, group_id):
+        return
+
+    group_config = await group_service.get_or_register_group(group_id)
+    allowed = group_config.get("guard_settings", {}).get("allowed_domains", [])
+    allowed_str = "\n• ".join(allowed) if allowed else "Hozircha bo'sh"
+
+    text = (
+        f"🌐 <b>Ruxsat etilgan veb-saytlar:</b>\n\n"
+        f"• {allowed_str}\n\n"
+        f"<i>Ushbu saytlarning havolalari Anti-Link tomonidan o'chirilmaydi.</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Orqaga", callback_data=f"settings:link:{group_id}")]
+        ]
+    )
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("guard:words:"))
@@ -231,14 +366,12 @@ async def cb_guard_words(callback: CallbackQuery, bot: Bot, state: FSMContext):
     words = list(group_config.get("guard_settings", {}).get("bad_words", []))
 
     total = len(words)
-    # Display preview formatted cleanly within Telegram's message limits
     if not words:
         words_display = "<i>Hozircha taqiqlangan so'zlar ro'yxati bo'sh.</i>"
     else:
-        # Show words cleanly
-        words_display = ", ".join(f"<code>{w}</code>" for w in words[:120])
-        if total > 120:
-            words_display += f"\n<i>... va yana {total - 120} ta so'z</i>"
+        words_display = ", ".join(f"<code>{w}</code>" for w in words[:100])
+        if total > 100:
+            words_display += f"\n<i>... va yana {total - 100} ta so'z</i>"
 
     text = (
         f"📝 <b>Taqiqlangan so'zlar ro'yxati (Jami: {total} ta):</b>\n\n"
@@ -268,7 +401,6 @@ async def process_new_bad_word(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    # Parse single or comma/newline-separated words
     items = [item.strip().lower() for item in raw_text.replace("\n", ",").split(",") if item.strip()]
     valid_new_words = [w for w in items if len(w) >= 2]
 
