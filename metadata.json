@@ -1,6 +1,6 @@
 {
-  "name": "AnjurX | Rss Bot",
-  "description": "High-performance Telegram RSS/Atom/JSON Feed reader bot with autodiscovery, OPML import/export, and real-time feed broadcasting for channels and groups",
+  "name": "AnjurX | Obuna Bot",
+  "description": "Telegram RSS & Channel Content Aggregator with 5-Day Post Retention Pool, Fair Queue Distribution, and Super Admin Management.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

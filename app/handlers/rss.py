@@ -562,14 +562,19 @@ async def cb_settings(callback: CallbackQuery):
 # ==============================================================================
 @router.message(Command("sub"))
 async def cmd_sub(message: Message, bot: Bot):
-    """Legacy command: Subscribes current chat to an RSS feed."""
+    """Subscribes current chat to an RSS feed. Restricted to Super Admin."""
     chat_id = message.chat.id
     user = message.from_user
     if not user:
         return
 
-    if not await permission_service.can_user_manage_chat(bot, chat_id, user.id):
-        await message.reply("⛔ Faqat administratorlar yangi obuna qo'shishi mumkin.")
+    if not is_super_admin(user.id):
+        await message.reply(
+            "ℹ️ <b>Yangi manbalar:</b> Yangi manbalar faqat administrator tomonidan tasdiqlanadi.\n\n"
+            "Siz o‘z kanalingizga tayyor, tasdiqlangan manbalarni ulashingiz mumkin:\n"
+            "<code>/start</code> -> <b>[📢 Mening kanallarim]</b> -> <b>[📰 Manbalar]</b>",
+            parse_mode="HTML",
+        )
         return
 
     url = extract_url(message.text or "")

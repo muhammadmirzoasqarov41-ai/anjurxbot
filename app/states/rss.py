@@ -21,3 +21,9 @@ class AddTelegramSourceState(StatesGroup):
 class ConnectChannelState(StatesGroup):
     """Step-by-step workflow for connecting a destination channel."""
     waiting_for_channel = State()
+
+
+class AdminAddSourceState(StatesGroup):
+    """Super Admin state for adding a verified RSS/Atom source."""
+    waiting_for_url = State()
+    waiting_for_name = State()
