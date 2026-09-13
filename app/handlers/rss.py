@@ -155,6 +155,12 @@ async def process_rss_destination_selection(callback: CallbackQuery, state: FSMC
     feed_title = data.get("title", "RSS Manba")
 
     dest_item = await rss_storage.get_destination(dest_id)
+    user_id = callback.from_user.id if callback.from_user else 0
+    if dest_item and dest_item.owner_user_id and dest_item.owner_user_id != user_id:
+        if not is_super_admin(user_id):
+            await callback.answer("⛔ Siz faqat o‘zingizga tegishli kanallarni tanlashingiz mumkin!", show_alert=True)
+            return
+
     if dest_item:
         dest_title = dest_item.title
     elif dest_id == callback.from_user.id:
@@ -347,6 +353,12 @@ async def process_tg_destination_selection(callback: CallbackQuery, state: FSMCo
     source_title = data.get("source_title", "Manba Kanal")
 
     dest_item = await rss_storage.get_destination(dest_id)
+    user_id = callback.from_user.id if callback.from_user else 0
+    if dest_item and dest_item.owner_user_id and dest_item.owner_user_id != user_id:
+        if not is_super_admin(user_id):
+            await callback.answer("⛔ Siz faqat o‘zingizga tegishli kanallarni tanlashingiz mumkin!", show_alert=True)
+            return
+
     if dest_item:
         dest_title = dest_item.title
     elif dest_id == callback.from_user.id:

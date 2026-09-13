@@ -289,6 +289,73 @@ class TestAnjurXAggregator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(delivered_again, 0)
         mock_bot.send_message.assert_not_called()
 
+    # --------------------------------------------------------------------------
+    # 8. Keyboards & Destination Selection Flow Tests
+    # --------------------------------------------------------------------------
+    def test_destination_selection_keyboard_ownership_filter(self):
+        """Tests that get_destination_selection_keyboard strictly isolates user channels."""
+        from app.keyboards.rss import (
+            get_destination_selection_keyboard,
+            get_connection_confirm_keyboard,
+            get_sources_list_keyboard,
+            get_delete_source_confirm_keyboard,
+            get_rss_list_keyboard,
+            get_unsub_confirm_keyboard,
+            get_allunsub_confirm_keyboard,
+        )
+
+        ch_user1 = ChannelItem(chat_id=-1001, title="User 1 Ch", owner_user_id=111, active=True, can_post=True)
+        ch_user2 = ChannelItem(chat_id=-1002, title="User 2 Ch", owner_user_id=222, active=True, can_post=True)
+
+        all_channels = [ch_user1, ch_user2]
+
+        # For user 111: only ch_user1 must be shown
+        kb1 = get_destination_selection_keyboard(all_channels, callback_prefix="test_prefix", user_id=111)
+        buttons_user1 = [b.callback_data for row in kb1.inline_keyboard for b in row]
+        self.assertIn("test_prefix:-1001", buttons_user1)
+        self.assertNotIn("test_prefix:-1002", buttons_user1)
+
+        # For user 222: only ch_user2 must be shown
+        kb2 = get_destination_selection_keyboard(all_channels, callback_prefix="test_prefix", user_id=222)
+        buttons_user2 = [b.callback_data for row in kb2.inline_keyboard for b in row]
+        self.assertNotIn("test_prefix:-1001", buttons_user2)
+        self.assertIn("test_prefix:-1002", buttons_user2)
+
+        # Super Admin (8157452043) sees all channels
+        kb_admin = get_destination_selection_keyboard(all_channels, callback_prefix="test_prefix", user_id=8157452043)
+        buttons_admin = [b.callback_data for row in kb_admin.inline_keyboard for b in row]
+        self.assertIn("test_prefix:-1001", buttons_admin)
+        self.assertIn("test_prefix:-1002", buttons_admin)
+
+        # If user has no channels: displays "➕ Avval kanal qo‘shing"
+        kb_empty = get_destination_selection_keyboard([], callback_prefix="test_prefix", user_id=111)
+        buttons_empty = [b.callback_data for row in kb_empty.inline_keyboard for b in row]
+        self.assertIn("btn_add_channel", buttons_empty)
+
+        # Verify confirmation keyboards
+        kb_confirm = get_connection_confirm_keyboard("confirm_action_cb")
+        confirm_cbs = [b.callback_data for row in kb_confirm.inline_keyboard for b in row]
+        self.assertIn("confirm_action_cb", confirm_cbs)
+        self.assertIn("menu_main", confirm_cbs)
+
+        # Verify sources list keyboard
+        src = SourceItem(id="src_1", name="Kun.uz", url="https://kun.uz/rss", category="yangiliklar")
+        kb_sources = get_sources_list_keyboard([src])
+        src_cbs = [b.callback_data for row in kb_sources.inline_keyboard for b in row]
+        self.assertIn("del_src_ask:src_1", src_cbs)
+
+        # Verify delete confirm keyboard
+        kb_del = get_delete_source_confirm_keyboard("src_1", "Kun.uz")
+        del_cbs = [b.callback_data for row in kb_del.inline_keyboard for b in row]
+        self.assertIn("del_src_do:src_1", del_cbs)
+
+        # Verify unsub and allunsub keyboards
+        kb_unsub = get_unsub_confirm_keyboard("sub_1")
+        self.assertIn("unsub_confirm:sub_1", [b.callback_data for row in kb_unsub.inline_keyboard for b in row])
+
+        kb_allunsub = get_allunsub_confirm_keyboard()
+        self.assertIn("allunsub_confirm", [b.callback_data for row in kb_allunsub.inline_keyboard for b in row])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@ Implements the exact user flow:
 - Post Frequency & Schedule: 1 ta, 2 ta, 3 ta; Instant vs Scheduled times
 - Super Admin Panel keyboards
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.config import config
 from app.services.rss_storage import ChannelItem, SourceItem
@@ -241,6 +241,126 @@ def get_cancel_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="❌ Bekor qilish", callback_data="menu_main"),
+            ]
+        ]
+    )
+
+
+def get_destination_selection_keyboard(
+    destinations: List[ChannelItem],
+    callback_prefix: str = "rss_dest_sel",
+    user_id: Optional[int] = None,
+) -> InlineKeyboardMarkup:
+    """
+    Keyboard for selecting destination channel owned by the user.
+    Security: Strictly filters to user's own channels if user_id is provided,
+    preventing IDOR and exposure of other users' channels.
+    """
+    buttons = []
+    for d in destinations:
+        # Strict ownership verification if user_id is given
+        if user_id and d.owner_user_id and d.owner_user_id != user_id:
+            if not config.is_super_admin(user_id):
+                continue
+
+        status_icon = "🟢" if (d.active and d.can_post) else "⏸"
+        title = d.title[:24] + "..." if len(d.title) > 24 else d.title
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_icon} {title}",
+                callback_data=f"{callback_prefix}:{d.chat_id}",
+            )
+        ])
+
+    if not buttons:
+        buttons.append([
+            InlineKeyboardButton(text="➕ Avval kanal qo‘shing", callback_data="btn_add_channel")
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data="menu_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_connection_confirm_keyboard(confirm_callback_data: str) -> InlineKeyboardMarkup:
+    """Confirm or cancel a connection action."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Ha, ulansin", callback_data=confirm_callback_data),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="menu_main"),
+            ]
+        ]
+    )
+
+
+def get_sources_list_keyboard(sources: List[SourceItem]) -> InlineKeyboardMarkup:
+    """List of sources with delete buttons and back to main menu."""
+    buttons = []
+    for s in sources:
+        name = getattr(s, "name", None) or getattr(s, "title", "Manba")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"🗑 {name[:24]}",
+                callback_data=f"del_src_ask:{s.id}",
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="menu_main"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_delete_source_confirm_keyboard(source_id: str, title: str = "") -> InlineKeyboardMarkup:
+    """Confirms source deletion."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑 Ha, o‘chirilsin", callback_data=f"del_src_do:{source_id}"),
+                InlineKeyboardButton(text="❌ Bekor qilish", callback_data="btn_my_sources"),
+            ]
+        ]
+    )
+
+
+def get_rss_list_keyboard(feeds: List[Any]) -> InlineKeyboardMarkup:
+    """Lists feeds with unsub action buttons."""
+    buttons = []
+    for f in feeds:
+        name = getattr(f, "name", None) or getattr(f, "title", "Feed")
+        feed_id = getattr(f, "id", "")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"❌ {name[:24]}",
+                callback_data=f"unsub_feed:{feed_id}",
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="menu_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_unsub_confirm_keyboard(feed_id: str, title: str = "") -> InlineKeyboardMarkup:
+    """Unsubscribe confirmation keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="❌ Obunani bekor qilish", callback_data=f"unsub_confirm:{feed_id}"),
+                InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="menu_main"),
+            ]
+        ]
+    )
+
+
+def get_allunsub_confirm_keyboard() -> InlineKeyboardMarkup:
+    """Unsubscribe all confirmation keyboard."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🗑 Barcha obunalarni o‘chirish", callback_data="allunsub_confirm"),
+                InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="menu_main"),
             ]
         ]
     )
