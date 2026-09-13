@@ -5,10 +5,19 @@ Supports native async calls with fallback for credential-free testing environmen
 import logging
 import inspect
 from typing import Optional, Dict, Any, List
-from google.oauth2 import service_account
-from google.cloud.firestore import AsyncClient
-import firebase_admin
-from firebase_admin import credentials
+
+try:
+    from google.oauth2 import service_account
+    from google.cloud.firestore import AsyncClient
+    import firebase_admin
+    from firebase_admin import credentials
+    FIREBASE_PACKAGES_AVAILABLE = True
+except ImportError:
+    service_account = None  # type: ignore
+    AsyncClient = None  # type: ignore
+    firebase_admin = None  # type: ignore
+    credentials = None  # type: ignore
+    FIREBASE_PACKAGES_AVAILABLE = False
 
 from app.config import config
 
@@ -17,7 +26,7 @@ logger = logging.getLogger("anjurxbot.firestore")
 
 class FirestoreManager:
     _instance: Optional["FirestoreManager"] = None
-    client: Optional[AsyncClient] = None
+    client: Any = None
     _is_connected: bool = False
     _fallback_mode: bool = False
     _memory_db: Dict[str, Dict[str, Any]] = {}
@@ -34,6 +43,13 @@ class FirestoreManager:
 
     async def connect(self) -> bool:
         """Initialize connection to Firebase and Firestore AsyncClient."""
+        if not FIREBASE_PACKAGES_AVAILABLE:
+            logger.info("Firebase SDK not installed in current environment. Operating in local JSON storage mode.")
+            self.client = None
+            self._fallback_mode = True
+            self._is_connected = False
+            return False
+
         if self._is_connected and self.client:
             return True
 
@@ -63,15 +79,17 @@ class FirestoreManager:
                     logger.info(f"Connected to Firestore using environment credentials. Project: {project_id}")
                     return True
                 except Exception as adc_err:
-                    logger.warning(
-                        f"No service account credentials provided for project '{project_id}' ({adc_err}). "
-                        "Operating in safe in-memory fallback mode."
+                    logger.info(
+                        f"No Firebase service account configured ({type(adc_err).__name__}). "
+                        "Operating in local JSON storage mode."
                     )
+                    self.client = None
                     self._fallback_mode = True
-                    self._is_connected = True
-                    return True
+                    self._is_connected = False
+                    return False
         except Exception as e:
             logger.error(f"error_type={type(e).__name__} message=Failed to connect to Firebase: {e}")
+            self.client = None
             self._fallback_mode = True
             self._is_connected = False
             return False
@@ -86,11 +104,22 @@ class FirestoreManager:
                 logger.info("Firestore async client closed gracefully")
             except Exception as e:
                 logger.error(f"error_type={type(e).__name__} message=Error closing Firestore client: {e}")
+        self.client = None
         self._is_connected = False
 
     @property
     def is_connected(self) -> bool:
-        return self._is_connected
+        return self._is_connected and not self._fallback_mode and self.client is not None
+
+    def is_initialized(self) -> bool:
+        """Checks if Firestore is actively connected and ready."""
+        return self._is_connected and not self._fallback_mode and self.client is not None
+
+    def collection(self, name: str):
+        """Allows direct collection access when connected to Firestore."""
+        if self.client and not self._fallback_mode:
+            return self.client.collection(name)
+        raise RuntimeError(f"Firestore is not connected. Cannot access collection '{name}'.")
 
     # Document operations
     async def get_document(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:

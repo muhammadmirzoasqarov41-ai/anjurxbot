@@ -47,6 +47,38 @@ def get_today_date_str() -> str:
 
 
 class FirebaseService:
+    @property
+    def db(self):
+        """Returns the active FirestoreManager instance."""
+        return db
+
+    async def initialize(self) -> bool:
+        """Connects to Firestore if credentials are configured."""
+        return await db.connect()
+
+    def is_initialized(self) -> bool:
+        """Checks if Firestore connection is active and ready."""
+        return db.is_connected and not db._fallback_mode and db.client is not None
+
+    # --- RSS Feed Firestore Operations ---
+    async def get_rss_feeds(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        if not self.is_initialized():
+            return []
+        return await db.list_documents("rss_feeds", limit=limit)
+
+    async def save_rss_feed(self, feed_data: Dict[str, Any]) -> bool:
+        if not self.is_initialized():
+            return False
+        feed_id = str(feed_data.get("id", ""))
+        if not feed_id:
+            return False
+        return await db.set_document("rss_feeds", feed_id, feed_data, merge=True)
+
+    async def delete_rss_feed(self, feed_id: str) -> bool:
+        if not self.is_initialized():
+            return False
+        return await db.delete_document("rss_feeds", feed_id)
+
     # --- User operations ---
     async def save_or_update_user(self, user_id: int, user_data: Dict[str, Any]) -> bool:
         doc_id = str(user_id)
