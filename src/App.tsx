@@ -1,183 +1,147 @@
 import React, { useState, useEffect } from 'react';
-import { Navbar } from './components/Navbar';
-import { FeedsView } from './components/FeedsView';
-import { SubscribersView } from './components/SubscribersView';
-import { PostsView } from './components/PostsView';
-import { GuideView } from './components/GuideView';
-import { RSSFeed, RSSSubscriber, DeliveredPost, RSSStats } from './types';
+import { api } from './api';
+import { AuthUser, DashboardData } from './types';
+import { Header } from './components/Header';
+import { BottomNav, NavTab } from './components/BottomNav';
+import { DashboardView } from './components/DashboardView';
+import { ChannelsView } from './components/ChannelsView';
+import { PostsPoolView } from './components/PostsPoolView';
+import { SourcesView } from './components/SourcesView';
+import { UsersView } from './components/UsersView';
+import { DistributionView } from './components/DistributionView';
+import { SystemView } from './components/SystemView';
+import { LogsView } from './components/LogsView';
+import { SettingsView } from './components/SettingsView';
+import { MoreMenuModal } from './components/MoreMenuModal';
+import { ArrowLeft } from 'lucide-react';
+
+const SUPER_ADMIN_USER: AuthUser = {
+  user_id: 8157452043,
+  role: 'super_admin',
+  name: 'Super Admin',
+};
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('feeds');
-  const [feeds, setFeeds] = useState<RSSFeed[]>([]);
-  const [subscribers, setSubscribers] = useState<RSSSubscriber[]>([]);
-  const [posts, setPosts] = useState<DeliveredPost[]>([]);
-  const [stats, setStats] = useState<RSSStats | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [currentUser] = useState<AuthUser>(SUPER_ADMIN_USER);
+  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // Fetch Dashboard data
+  const fetchDashboardData = async () => {
+    setRefreshing(true);
+    try {
+      const data = await api.getDashboard();
+      setDashboardData(data);
+    } catch (err) {
+      console.error('Failed to fetch dashboard data:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    loadAllData();
+    fetchDashboardData();
+    // Periodic 20s polling for live dashboard metrics
+    const interval = setInterval(fetchDashboardData, 20000);
+    return () => clearInterval(interval);
   }, []);
 
-  const loadAllData = async () => {
-    setLoading(true);
-    try {
-      await Promise.all([loadStats(), loadFeeds(), loadSubscribers(), loadPosts()]);
-    } finally {
-      setLoading(false);
+  const handleSelectTab = (tab: NavTab) => {
+    if (tab === 'more') {
+      setIsMoreMenuOpen(true);
+    } else {
+      setCurrentTab(tab);
     }
   };
 
-  const loadStats = async () => {
-    try {
-      const res = await fetch('/api/stats');
-      if (res.ok) {
-        const data = await res.json();
-        setStats(data);
-      }
-    } catch (e) {
-      console.error('Failed to load stats', e);
-    }
-  };
-
-  const loadFeeds = async () => {
-    try {
-      const res = await fetch('/api/feeds');
-      if (res.ok) {
-        const data = await res.json();
-        setFeeds(data.feeds || []);
-      }
-    } catch (e) {
-      console.error('Failed to load feeds', e);
-    }
-  };
-
-  const loadSubscribers = async () => {
-    try {
-      const res = await fetch('/api/subscribers');
-      if (res.ok) {
-        const data = await res.json();
-        setSubscribers(data.subscribers || []);
-      }
-    } catch (e) {
-      console.error('Failed to load subscribers', e);
-    }
-  };
-
-  const loadPosts = async () => {
-    try {
-      const res = await fetch('/api/posts');
-      if (res.ok) {
-        const data = await res.json();
-        setPosts(data.posts || []);
-      }
-    } catch (e) {
-      console.error('Failed to load posts', e);
-    }
-  };
-
-  const handleAddFeed = async (url: string, title: string): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/feeds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, title }),
-      });
-      if (res.ok) {
-        await Promise.all([loadFeeds(), loadStats()]);
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('Failed to add feed', e);
-      return false;
-    }
-  };
-
-  const handleDeleteFeed = async (feedId: string) => {
-    try {
-      const res = await fetch(`/api/feeds/${encodeURIComponent(feedId)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        await Promise.all([loadFeeds(), loadStats(), loadSubscribers()]);
-      }
-    } catch (e) {
-      console.error('Failed to delete feed', e);
-    }
-  };
-
-  const handleSyncFeed = async (feedId: string) => {
-    try {
-      const res = await fetch(`/api/feeds/${encodeURIComponent(feedId)}/sync`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        await Promise.all([loadFeeds(), loadPosts()]);
-      }
-    } catch (e) {
-      console.error('Failed to sync feed', e);
-    }
-  };
-
-  const handleImportOpml = async (file: File) => {
-    try {
-      const text = await file.text();
-      const res = await fetch('/api/import/opml', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opml: text }),
-      });
-      if (res.ok) {
-        await Promise.all([loadFeeds(), loadStats()]);
-      }
-    } catch (e) {
-      console.error('Failed to import OPML', e);
-    }
-  };
-
-  const handleExportOpml = () => {
-    window.location.href = '/api/export/opml';
-  };
+  const isSubView = ['users', 'distribution', 'system', 'logs', 'settings'].includes(currentTab);
 
   return (
-    <div className="min-h-screen bg-black text-slate-100 flex flex-col font-sans">
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        stats={stats}
-        onRefresh={loadAllData}
-        onExportOpml={handleExportOpml}
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col antialiased selection:bg-emerald-500 selection:text-zinc-950">
+      {/* Top Header */}
+      <Header
+        user={currentUser}
+        botStatus={dashboardData?.pulse?.bot || 'standby'}
+        refreshing={refreshing}
+        onRefresh={fetchDashboardData}
+        hasAlerts={(dashboardData?.alerts?.length || 0) > 0}
+        onOpenAlerts={() => setCurrentTab('channels')}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'feeds' && (
-          <FeedsView
-            feeds={feeds}
-            stats={stats}
-            onAddFeed={handleAddFeed}
-            onDeleteFeed={handleDeleteFeed}
-            onSyncFeed={handleSyncFeed}
-            onImportOpml={handleImportOpml}
-            loading={loading}
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 pt-4 sm:pt-6">
+        {/* Sub-view Back Button */}
+        {isSubView && (
+          <div className="mb-4">
+            <button
+              onClick={() => setCurrentTab('dashboard')}
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Bosh sahifaga qaytish</span>
+            </button>
+          </div>
+        )}
+
+        {/* View Switcher */}
+        {currentTab === 'dashboard' && (
+          <DashboardView
+            data={dashboardData}
+            loading={refreshing}
+            onNavigate={(tab) => setCurrentTab(tab)}
+            onRefresh={fetchDashboardData}
           />
         )}
 
-        {activeTab === 'subscribers' && <SubscribersView subscribers={subscribers} />}
+        {currentTab === 'channels' && (
+          <ChannelsView onRefresh={fetchDashboardData} />
+        )}
 
-        {activeTab === 'posts' && <PostsView posts={posts} />}
+        {currentTab === 'posts' && (
+          <PostsPoolView onRefresh={fetchDashboardData} />
+        )}
 
-        {activeTab === 'guide' && <GuideView />}
+        {currentTab === 'sources' && (
+          <SourcesView onRefresh={fetchDashboardData} />
+        )}
+
+        {currentTab === 'users' && (
+          <UsersView onRefresh={fetchDashboardData} />
+        )}
+
+        {currentTab === 'distribution' && (
+          <DistributionView onRefresh={fetchDashboardData} />
+        )}
+
+        {currentTab === 'system' && (
+          <SystemView />
+        )}
+
+        {currentTab === 'logs' && (
+          <LogsView />
+        )}
+
+        {currentTab === 'settings' && (
+          <SettingsView />
+        )}
       </main>
 
-      <footer className="border-t border-zinc-900 py-4 text-center text-xs text-zinc-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>AnjurX | Rss Bot &copy; 2026 — Ochiq manbali RSS/Atom Telegram boti</span>
-          <div className="flex items-center space-x-4">
-            <span>Holat: <strong className="text-emerald-400">FAOL</strong></span>
-            <span>Versiya: <strong>3.0-RSS</strong></span>
-          </div>
-        </div>
-      </footer>
+      {/* Mobile Bottom Navigation */}
+      <BottomNav
+        currentTab={currentTab}
+        onSelectTab={handleSelectTab}
+        channelIssuesCount={dashboardData?.metrics?.permission_issues || 0}
+        alertsCount={dashboardData?.alerts?.length || 0}
+      />
+
+      {/* More Options Bottom Sheet / Modal */}
+      <MoreMenuModal
+        isOpen={isMoreMenuOpen}
+        onClose={() => setIsMoreMenuOpen(false)}
+        onSelectTab={(tab) => setCurrentTab(tab)}
+      />
     </div>
   );
 }

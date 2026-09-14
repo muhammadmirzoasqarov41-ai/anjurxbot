@@ -27,12 +27,14 @@ from app.config import config
 from app.services.permission_service import is_super_admin
 from app.services.rss_storage import rss_storage
 from app.services.feed_parser import escape_tg_html
-from app.states.rss import ConnectChannelState
+from app.states.rss import ConnectChannelState, SetScheduleTimesState
 from app.keyboards.rss import (
     get_main_menu_keyboard,
     get_channels_list_keyboard,
     get_channel_detail_keyboard,
     get_channel_sources_keyboard,
+    get_channel_categories_keyboard,
+    get_category_sources_keyboard,
     get_channel_schedule_keyboard,
     get_contract_contact_keyboard,
     get_disconnect_confirm_keyboard,
@@ -677,12 +679,12 @@ async def cb_view_channel(callback: CallbackQuery, bot: Bot):
 
 
 # ==============================================================================
-# 5. [📰 MANBALAR] (Super Admin Verified Sources Multi-Select)
+# 5. [📰 MANBALAR] (Category-Based News Sources Management)
 # ==============================================================================
 
 @router.callback_query(F.data.startswith("ch_sources:"))
 async def cb_channel_sources(callback: CallbackQuery, bot: Bot):
-    """Displays verified sources for user to toggle for this channel."""
+    """Displays categories overview with selected source counts (e.g. O‘zbekiston (3/4))."""
     user_id = callback.from_user.id if callback.from_user else 0
     chat_id = int(callback.data.split(":")[1])
 
@@ -691,13 +693,83 @@ async def cb_channel_sources(callback: CallbackQuery, bot: Bot):
         await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
         return
 
+    categories = await rss_storage.get_all_categories(active_only=True)
     all_sources = await rss_storage.get_active_sources()
+
+    # Group sources by category id
+    sources_by_cat: Dict[str, List[Any]] = {}
+    for cat in categories:
+        sources_by_cat[cat.id] = []
+
+    for src in all_sources:
+        cat_id = src.category_id or "cat_ozbekiston"
+        if cat_id in sources_by_cat:
+            sources_by_cat[cat_id].append(src)
+        else:
+            # Match by name if category_id not explicitly set
+            matched = False
+            for c in categories:
+                if c.name.lower() == (src.category or "").lower():
+                    sources_by_cat[c.id].append(src)
+                    matched = True
+                    break
+            if not matched and categories:
+                sources_by_cat[categories[0].id].append(src)
+
     text = (
-        f"📰 <b>Manbalarni tanlash — {channel.title}</b>\n\n"
-        "Kanalingizga qaysi manbalardan postlar yuborilishini belgilang:\n"
-        "(Ustiga bosib faollashtiring yoki o‘chiring)"
+        f"📰 <b>Manbalarni tanlash — {escape_tg_html(channel.title)}</b>\n\n"
+        "Kanalingizga qaysi manbalardan postlar yuborilishini belgilang.\n"
+        "Kategoriyani tanlab, uning ichidagi RSS manbalarini sozlashingiz mumkin:\n\n"
+        f"• Jami faol manbalar: <b>{len(all_sources)} ta</b>\n"
+        f"• Siz tanlagan: <b>{len(channel.selected_sources)} ta</b>"
     )
-    kb = get_channel_sources_keyboard(channel.chat_id, all_sources, channel.selected_sources)
+    kb = get_channel_categories_keyboard(
+        channel_id=channel.chat_id,
+        categories=categories,
+        sources_by_cat=sources_by_cat,
+        selected_source_ids=channel.selected_sources,
+    )
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ch_cat_view:"))
+async def cb_channel_category_view(callback: CallbackQuery, bot: Bot):
+    """Displays sources inside a single category with individual toggle checkboxes."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    parts = callback.data.split(":")
+    chat_id = int(parts[1])
+    cat_id = parts[2]
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    category = await rss_storage.get_category(cat_id)
+    if not category:
+        await callback.answer("Kategoriya topilmadi.", show_alert=True)
+        return
+
+    cat_sources = await rss_storage.get_sources_by_category(cat_id, active_only=True)
+    selected_in_cat = sum(1 for s in cat_sources if s.id in channel.selected_sources)
+
+    text = (
+        f"📁 <b>{escape_tg_html(category.name)} — Manbalar</b>\n\n"
+        f"📢 Kanal: <b>{escape_tg_html(channel.title)}</b>\n"
+        f"Tanlangan: <b>{selected_in_cat}/{len(cat_sources)} ta</b>\n\n"
+        "Kerakli manba ustiga bosib faollashtiring yoki o‘chiring:"
+    )
+    kb = get_category_sources_keyboard(
+        channel_id=channel.chat_id,
+        category=category,
+        sources=cat_sources,
+        selected_source_ids=channel.selected_sources,
+    )
 
     try:
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -708,11 +780,12 @@ async def cb_channel_sources(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("ch_src_toggle:"))
 async def cb_toggle_channel_source(callback: CallbackQuery, bot: Bot):
-    """Toggles source selection on/off for a channel."""
+    """Toggles single source on/off for a channel and persists immediately."""
     user_id = callback.from_user.id if callback.from_user else 0
     parts = callback.data.split(":")
     chat_id = int(parts[1])
-    source_id = parts[2]
+    cat_id = parts[2]
+    source_id = parts[3]
 
     channel = await rss_storage.get_channel(chat_id)
     if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
@@ -722,21 +795,106 @@ async def cb_toggle_channel_source(callback: CallbackQuery, bot: Bot):
     current = list(channel.selected_sources)
     if source_id in current:
         current.remove(source_id)
-        action_msg = "Manba o‘chirildi"
+        action_msg = "Manba o‘chirildi ❌"
     else:
         current.append(source_id)
-        action_msg = "Manba tanlandi"
+        action_msg = "Manba tanlandi ✅"
 
     await rss_storage.update_channel_sources(chat_id, current, user_id)
 
-    all_sources = await rss_storage.get_active_sources()
-    kb = get_channel_sources_keyboard(channel.chat_id, all_sources, current)
+    # Re-render category view if cat_id != "all", otherwise sources list
+    if cat_id != "all":
+        category = await rss_storage.get_category(cat_id)
+        cat_sources = await rss_storage.get_sources_by_category(cat_id, active_only=True)
+        if category:
+            selected_in_cat = sum(1 for s in cat_sources if s.id in current)
+            text = (
+                f"📁 <b>{escape_tg_html(category.name)} — Manbalar</b>\n\n"
+                f"📢 Kanal: <b>{escape_tg_html(channel.title)}</b>\n"
+                f"Tanlangan: <b>{selected_in_cat}/{len(cat_sources)} ta</b>\n\n"
+                "Kerakli manba ustiga bosib faollashtiring yoki o‘chiring:"
+            )
+            kb = get_category_sources_keyboard(
+                channel_id=channel.chat_id,
+                category=category,
+                sources=cat_sources,
+                selected_source_ids=current,
+            )
+            try:
+                await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception:
+                pass
+    else:
+        all_sources = await rss_storage.get_active_sources()
+        kb = get_channel_sources_keyboard(channel.chat_id, all_sources, current)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=kb)
+        except Exception:
+            pass
 
-    try:
-        await callback.message.edit_reply_markup(reply_markup=kb)
-    except Exception:
-        pass
     await callback.answer(action_msg)
+
+
+@router.callback_query(F.data.startswith("ch_src_bulk:"))
+async def cb_bulk_channel_sources(callback: CallbackQuery, bot: Bot):
+    """Bulk selects or clears sources for a specific category or all categories."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    parts = callback.data.split(":")
+    chat_id = int(parts[1])
+    cat_id = parts[2]
+    action = parts[3]  # "select" or "clear"
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    current = set(channel.selected_sources)
+
+    if cat_id == "all":
+        all_sources = await rss_storage.get_active_sources()
+        if action == "select":
+            current.update(s.id for s in all_sources)
+            msg = "Barcha manbalar tanlandi ✅"
+        else:
+            current.clear()
+            msg = "Barcha manbalar tozalandi 🧹"
+        await rss_storage.update_channel_sources(chat_id, list(current), user_id)
+        await callback.answer(msg)
+        await cb_channel_sources(callback, bot)
+        return
+    else:
+        cat_sources = await rss_storage.get_sources_by_category(cat_id, active_only=True)
+        cat_source_ids = {s.id for s in cat_sources}
+        if action == "select":
+            current.update(cat_source_ids)
+            msg = "Kategoriya manbalari tanlandi ✅"
+        else:
+            current.difference_update(cat_source_ids)
+            msg = "Kategoriya manbalari tozalandi 🧹"
+        await rss_storage.update_channel_sources(chat_id, list(current), user_id)
+        await callback.answer(msg)
+
+        # Refresh category view
+        category = await rss_storage.get_category(cat_id)
+        if category:
+            selected_in_cat = sum(1 for s in cat_sources if s.id in current)
+            text = (
+                f"📁 <b>{escape_tg_html(category.name)} — Manbalar</b>\n\n"
+                f"📢 Kanal: <b>{escape_tg_html(channel.title)}</b>\n"
+                f"Tanlangan: <b>{selected_in_cat}/{len(cat_sources)} ta</b>\n\n"
+                "Kerakli manba ustiga bosib faollashtiring yoki o‘chiring:"
+            )
+            kb = get_category_sources_keyboard(
+                channel_id=channel.chat_id,
+                category=category,
+                sources=cat_sources,
+                selected_source_ids=list(current),
+            )
+            try:
+                await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+            except Exception:
+                pass
 
 
 # ==============================================================================
@@ -745,7 +903,7 @@ async def cb_toggle_channel_source(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("ch_schedule:"))
 async def cb_channel_schedule(callback: CallbackQuery, bot: Bot):
-    """Shows frequency (1, 2, 3 posts/day) and schedule mode settings."""
+    """Shows frequency (1, 2, 3 posts/day), schedule mode and custom times."""
     user_id = callback.from_user.id if callback.from_user else 0
     chat_id = int(callback.data.split(":")[1])
 
@@ -754,12 +912,20 @@ async def cb_channel_schedule(callback: CallbackQuery, bot: Bot):
         await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
         return
 
+    mode_label = "⚡ Darhol (Instant)" if channel.schedule_mode == "instant" else "🕐 Belgilangan vaqt (Custom)"
+    times_formatted = ", ".join(channel.schedule_times or ["09:00", "14:00", "19:00"])
+
     text = (
-        f"⏰ <b>Post vaqti va chastotasi — {channel.title}</b>\n\n"
-        f"• Hozirgi kunlik limit: <b>{channel.daily_limit} ta post/kun</b> (Maksimal 3 ta)\n"
-        f"• Bugun yuborilgan: <b>{channel.today_delivered_count}/{channel.daily_limit}</b>\n"
-        f"• Rejim: <b>{'⚡ Darhol' if channel.schedule_mode == 'instant' else '🕐 Belgilangan vaqt'}</b>\n\n"
-        "<b>Kuniga nechta post yuborilsin?</b>"
+        f"⏰ <b>Post vaqti va jadvali — {escape_tg_html(channel.title)}</b>\n\n"
+        f"• Hozirgi kunlik limit: <b>{channel.daily_limit} ta post/kun</b>\n"
+        f"• Bugun yetkazilgan: <b>{channel.today_delivered_count}/{channel.daily_limit} ta</b>\n"
+        f"• Rejim: <b>{mode_label}</b>\n"
+        f"• Rejalashtirilgan vaqtlar (Asia/Tashkent): <code>{times_formatted}</code>\n\n"
+        "<b>Qoidalar:</b>\n"
+        "• Standart tarifda kunlik <b>maksimal 3 ta post</b> va 3 ta vaqt sloti belgilanishi mumkin.\n"
+        "• \"Darhol\": Manbada yangi xabar chiqishi bilanoq yuboriladi.\n"
+        "• \"Belgilangan\": Har kuni siz ko‘rsatgan aniq soatlarda 1 tadan post chiqariladi.\n\n"
+        "Quyidagi tugmalar orqali sozlang:"
     )
     kb = get_channel_schedule_keyboard(channel)
 
@@ -772,7 +938,7 @@ async def cb_channel_schedule(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("ch_set_limit:"))
 async def cb_set_channel_limit(callback: CallbackQuery, bot: Bot):
-    """Sets daily post limit (enforces max 3 for free users)."""
+    """Sets daily post limit (strictly capped at 3 for free users)."""
     user_id = callback.from_user.id if callback.from_user else 0
     parts = callback.data.split(":")
     chat_id = int(parts[1])
@@ -800,7 +966,7 @@ async def cb_set_channel_limit(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("ch_set_sched:"))
 async def cb_set_channel_schedule_mode(callback: CallbackQuery, bot: Bot):
-    """Sets schedule mode between instant and scheduled."""
+    """Sets schedule mode between instant and custom."""
     user_id = callback.from_user.id if callback.from_user else 0
     parts = callback.data.split(":")
     chat_id = int(parts[1])
@@ -818,9 +984,160 @@ async def cb_set_channel_schedule_mode(callback: CallbackQuery, bot: Bot):
         is_super_admin=is_super_admin(user_id),
     )
 
-    msg = "⚡ Rejim o‘rnatildi: Darhol" if mode == "instant" else "🕐 Rejim o‘rnatildi: Belgilangan vaqt"
+    msg = "⚡ Rejim: Darhol (Instant)" if mode == "instant" else "🕐 Rejim: Belgilangan vaqt (Custom)"
     await callback.answer(msg, show_alert=False)
     await cb_channel_schedule(callback, bot)
+
+
+@router.callback_query(F.data.startswith("ch_set_preset:"))
+async def cb_set_schedule_preset(callback: CallbackQuery, bot: Bot):
+    """Applies quick schedule presets."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    parts = callback.data.split(":")
+    chat_id = int(parts[1])
+    preset = parts[2]
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    if preset == "work":
+        times = ["08:30", "13:00", "18:30"]
+    else:
+        times = ["09:00", "14:00", "19:00"]
+
+    # Trim to channel daily_limit
+    times = times[:channel.daily_limit]
+
+    await rss_storage.update_channel_settings(
+        chat_id=chat_id,
+        user_id=user_id,
+        schedule_mode="custom",
+        schedule_times=times,
+        is_super_admin=is_super_admin(user_id),
+    )
+
+    await callback.answer(f"✅ Vaqtlar o‘rnatildi: {', '.join(times)}", show_alert=False)
+    await cb_channel_schedule(callback, bot)
+
+
+@router.callback_query(F.data.startswith("ch_edit_times:"))
+async def cb_edit_schedule_times(callback: CallbackQuery, state: FSMContext):
+    """Prompts user to enter custom schedule times (e.g. 09:30, 14:15, 20:00)."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    chat_id = int(callback.data.split(":")[1])
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    max_slots = channel.daily_limit if channel.plan == "contract" else min(channel.daily_limit, 3)
+    await state.set_state(SetScheduleTimesState.waiting_for_times)
+    await state.update_data(schedule_chat_id=chat_id, max_slots=max_slots)
+
+    text = (
+        f"🕒 <b>Post vaqtlarini kiritish — {escape_tg_html(channel.title)}</b>\n\n"
+        f"Kanalingiz kunlik limiti: <b>{channel.daily_limit} ta post</b>\n"
+        f"Maksimal slotlar soni: <b>{max_slots} ta</b>\n"
+        "Vaqt mintaqasi: <b>Asia/Tashkent (UTC+5)</b>\n\n"
+        "Iltimos, postlar chiqarilishi kerak bo‘lgan vaqtlarni vergul bilan ajratib yozing.\n"
+        "Masalan:\n"
+        "<code>09:30, 14:15, 20:00</code>\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Ortga", callback_data=f"ch_schedule:{chat_id}")]
+        ]
+    )
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.message(StateFilter(SetScheduleTimesState.waiting_for_times))
+async def msg_receive_schedule_times(message: Message, bot: Bot, state: FSMContext):
+    """Processes user text input for custom schedule times."""
+    if (message.text or "").strip() == "/cancel":
+        await state.clear()
+        await message.reply("Vaqtlarni kiritish bekor qilindi.")
+        return
+
+    data = await state.get_data()
+    chat_id = data.get("schedule_chat_id")
+    max_slots = data.get("max_slots", 3)
+    user_id = message.from_user.id if message.from_user else 0
+
+    channel = await rss_storage.get_channel(int(chat_id))
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await state.clear()
+        await message.reply("⛔ Kanal topilmadi yoki ruxsat yo‘q.")
+        return
+
+    raw_input = (message.text or "").strip()
+    raw_slots = [p.strip() for p in re.split(r"[,;\s]+", raw_input) if p.strip()]
+
+    valid_times = []
+    time_regex = re.compile(r"^([01]?[0-9]|2[0-3]):[0-5][0-9]$")
+
+    for slot in raw_slots:
+        match = time_regex.match(slot)
+        if match:
+            # Normalize to HH:MM format e.g. 9:30 -> 09:30
+            parts = slot.split(":")
+            formatted = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+            if formatted not in valid_times:
+                valid_times.append(formatted)
+        else:
+            await message.reply(
+                f"❌ Noto‘g‘ri vaqt formati: <code>{escape_tg_html(slot)}</code>\n\n"
+                "Iltimos, vaqtlarni <code>HH:MM</code> formatida kiriting (masalan: <code>09:30, 14:15, 20:00</code>)."
+            )
+            return
+
+    if not valid_times:
+        await message.reply("Iltimos, kamida bitta vaqt kiriting (masalan: <code>09:00, 14:00, 19:00</code>).")
+        return
+
+    valid_times = sorted(valid_times)
+
+    if len(valid_times) > max_slots:
+        await message.reply(
+            f"⚠️ Siz {len(valid_times)} ta vaqt kiritdingiz, lekin kanalingiz uchun maksimal <b>{max_slots} ta</b> vaqt ruxsat etilgan.\n\n"
+            f"Dastlabki {max_slots} ta vaqt qabul qilindi: <code>{', '.join(valid_times[:max_slots])}</code>"
+        )
+        valid_times = valid_times[:max_slots]
+
+    # Save to storage
+    await rss_storage.update_channel_settings(
+        chat_id=chat_id,
+        user_id=user_id,
+        schedule_mode="custom",
+        schedule_times=valid_times,
+        is_super_admin=is_super_admin(user_id),
+    )
+
+    await state.clear()
+
+    reply_text = (
+        "✅ <b>Post vaqtlari muvaffaqiyatli saqlandi!</b>\n\n"
+        f"📢 Kanal: <b>{escape_tg_html(channel.title)}</b>\n"
+        f"🕐 Belgilangan vaqtlar (Asia/Tashkent): <code>{', '.join(valid_times)}</code>\n"
+        f"⚡ Rejim: <b>Belgilangan vaqt (Custom)</b>\n\n"
+        "Bot har kuni ushbu vaqtlarda yangiliklar pullasidan yangi postlarni avtomatik yuboradi."
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏰ Jadvalga qaytish", callback_data=f"ch_schedule:{chat_id}")],
+            [InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{chat_id}")],
+        ]
+    )
+    await message.reply(reply_text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("ch_contract_info:"))

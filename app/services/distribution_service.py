@@ -155,22 +155,25 @@ class PostDistributionService:
         """
         Determines whether a channel is eligible based on its schedule settings.
         - 'instant': Always ready if daily limit is not reached.
-        - 'scheduled': Checks if current Tashkent time matches/has passed a scheduled slot today.
+        - 'custom' / 'scheduled': Checks if current Tashkent time matches/has passed a scheduled slot today.
         """
         if channel.schedule_mode == "instant":
-            return True
+            return channel.today_delivered_count < channel.daily_limit
 
-        # Scheduled mode
+        # Custom / Scheduled mode
         tashkent_now = get_tashkent_now()
         current_hm = tashkent_now.strftime("%H:%M")
 
         # Sort schedule times (e.g. ["09:00", "14:00", "19:00"])
-        times = sorted(channel.schedule_times or ["09:00", "14:00", "19:00"])
-        # Calculate how many slots have passed today
+        raw_times = channel.schedule_times or ["09:00", "14:00", "19:00"]
+        max_slots = channel.daily_limit if channel.plan == "contract" else min(channel.daily_limit, 3)
+        times = sorted(set(raw_times))[:max_slots]
+
+        # Calculate how many slots have passed today in Tashkent timezone
         slots_passed = sum(1 for t in times if current_hm >= t)
 
         # If more slots have passed than posts delivered today, channel is ready!
-        return slots_passed > channel.today_delivered_count
+        return (slots_passed > channel.today_delivered_count) and (channel.today_delivered_count < channel.daily_limit)
 
     async def get_eligible_channels_for_post(
         self,

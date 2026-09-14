@@ -55,13 +55,50 @@ def get_today_tashkent_str() -> str:
 # ==============================================================================
 
 @dataclass
+class CategoryItem:
+    """Represents a hierarchical category for news sources."""
+    id: str  # e.g. "cat_ozbekiston"
+    name: str  # Display name e.g. "O‘zbekiston"
+    slug: str  # e.g. "ozbekiston"
+    description: str = ""
+    icon: str = "newspaper"
+    active: bool = True
+    sort_order: int = 1
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CategoryItem":
+        return cls(
+            id=str(d.get("id") or ""),
+            name=str(d.get("name") or ""),
+            slug=str(d.get("slug") or ""),
+            description=str(d.get("description") or ""),
+            icon=str(d.get("icon") or "newspaper"),
+            active=bool(d.get("active", True)),
+            sort_order=int(d.get("sort_order", 1)) if str(d.get("sort_order", 1)).isdigit() else 1,
+            created_at=str(d.get("created_at") or datetime.utcnow().isoformat()),
+            updated_at=str(d.get("updated_at") or datetime.utcnow().isoformat()),
+        )
+
+
+@dataclass
 class SourceItem:
     """Represents a Super Admin managed news source (RSS/Atom/JSON feed)."""
     id: str  # e.g. "src_kunuz" or "src_<hash>"
     name: str  # Display name e.g. "Kun.uz"
     url: str  # Feed URL
+    feed_url: Optional[str] = None
+    website_url: Optional[str] = None
     type: str = "rss"  # "rss", "atom", "json"
+    category_id: Optional[str] = None
     category: str = "Yangiliklar"
+    description: Optional[str] = None
+    language: str = "uz"
+    country: str = "UZ"
     active: bool = True
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
@@ -101,9 +138,15 @@ class SourceItem:
     def from_dict(cls, d: Dict[str, Any]) -> "SourceItem":
         sid = str(d.get("id") or make_feed_id(d.get("url") or d.get("url_or_id") or "unknown"))
         name = str(d.get("name") or d.get("title") or "Nomsiz Manba")
-        url = str(d.get("url") or d.get("url_or_id") or d.get("link") or "")
+        url = str(d.get("url") or d.get("feed_url") or d.get("url_or_id") or d.get("link") or "")
+        feed_url = str(d.get("feed_url") or url)
+        website_url = d.get("website_url")
         stype = str(d.get("type") or "rss")
+        cat_id = d.get("category_id")
         cat = str(d.get("category") or "Yangiliklar")
+        desc = d.get("description")
+        lang = str(d.get("language") or "uz")
+        country = str(d.get("country") or "UZ")
         act = bool(d.get("active", True))
         err_cnt = int(d.get("error_count", 0)) if str(d.get("error_count", 0)).isdigit() else 0
         posts_cnt = int(d.get("posts_count", 0)) if str(d.get("posts_count", 0)).isdigit() else 0
@@ -112,8 +155,14 @@ class SourceItem:
             id=sid,
             name=name,
             url=url,
+            feed_url=feed_url,
+            website_url=website_url,
             type=stype,
+            category_id=cat_id,
             category=cat,
+            description=desc,
+            language=lang,
+            country=country,
             active=act,
             created_at=str(d.get("created_at") or datetime.utcnow().isoformat()),
             updated_at=str(d.get("updated_at") or datetime.utcnow().isoformat()),
@@ -138,10 +187,11 @@ class ChannelItem:
     can_post: bool = True
     daily_limit: int = 3  # Normal users strictly max 3; contract users can have higher limit
     plan: str = "free"  # "free" or "contract"
-    schedule_mode: str = "instant"  # "instant" or "scheduled"
+    schedule_mode: str = "instant"  # "instant" or "custom" / "scheduled"
     schedule_times: List[str] = field(default_factory=lambda: ["09:00", "14:00", "19:00"])
     selected_sources: List[str] = field(default_factory=list)  # list of source_ids
     today_delivered_count: int = 0
+    today_delivered_slots: List[str] = field(default_factory=list)
     today_date: str = field(default_factory=get_today_tashkent_str)
     last_delivered_at: Optional[str] = None
     total_delivered_count: int = 0
@@ -154,6 +204,7 @@ class ChannelItem:
         if self.today_date != today:
             self.today_date = today
             self.today_delivered_count = 0
+            self.today_delivered_slots = []
             self.updated_at = datetime.utcnow().isoformat()
             return True
         return False
@@ -203,6 +254,13 @@ class ChannelItem:
         raw_times = d.get("schedule_times", ["09:00", "14:00", "19:00"])
         times = [str(t) for t in raw_times if t] if isinstance(raw_times, list) else ["09:00", "14:00", "19:00"]
 
+        raw_slots = d.get("today_delivered_slots", [])
+        slots = [str(s) for s in raw_slots if s] if isinstance(raw_slots, list) else []
+
+        mode = str(d.get("schedule_mode") or "instant")
+        if mode == "scheduled":
+            mode = "custom"
+
         return cls(
             chat_id=cid,
             title=str(d.get("title") or f"Kanal {cid}"),
@@ -212,10 +270,11 @@ class ChannelItem:
             can_post=bool(d.get("can_post", True)),
             daily_limit=limit,
             plan=plan,
-            schedule_mode=str(d.get("schedule_mode") or "instant"),
+            schedule_mode=mode,
             schedule_times=times,
             selected_sources=srcs,
             today_delivered_count=int(d.get("today_delivered_count", 0)),
+            today_delivered_slots=slots,
             today_date=str(d.get("today_date") or get_today_tashkent_str()),
             last_delivered_at=d.get("last_delivered_at"),
             total_delivered_count=int(d.get("total_delivered_count", 0)),
@@ -332,6 +391,7 @@ class RSSStorage:
     """Central data store managing sources, channels, post pool, and deliveries."""
 
     def __init__(self):
+        self._categories: Dict[str, CategoryItem] = {}
         self._sources: Dict[str, SourceItem] = {}
         self._channels: Dict[int, ChannelItem] = {}
         self._posts: Dict[str, PostItem] = {}
@@ -388,31 +448,48 @@ class RSSStorage:
         self._loaded = True
 
     def _seed_default_sources_if_empty(self):
-        """Seeds standard, verified Uzbek news feeds if no sources exist."""
+        """Seeds standard categories and verified Uzbek news feeds if none exist."""
+        if not self._categories:
+            default_cats = [
+                CategoryItem(id="cat_ozbekiston", name="O‘zbekiston", slug="ozbekiston", icon="flag", sort_order=1),
+                CategoryItem(id="cat_jahon", name="Jahon", slug="jahon", icon="globe", sort_order=2),
+                CategoryItem(id="cat_texnologiya", name="Texnologiya va IT", slug="texnologiya", icon="cpu", sort_order=3),
+                CategoryItem(id="cat_iqtisodiyot", name="Iqtisodiyot va Moliya", slug="iqtisodiyot", icon="trending-up", sort_order=4),
+                CategoryItem(id="cat_sport", name="Sport", slug="sport", icon="trophy", sort_order=5),
+            ]
+            for c in default_cats:
+                self._categories[c.id] = c
+
         if not self._sources:
             default_sources = [
                 SourceItem(
                     id="src_kunuz",
                     name="Kun.uz",
                     url="https://kun.uz/news/rss",
+                    feed_url="https://kun.uz/news/rss",
                     type="rss",
-                    category="Yangiliklar",
+                    category_id="cat_ozbekiston",
+                    category="O‘zbekiston",
                     active=True,
                 ),
                 SourceItem(
                     id="src_daryouz",
                     name="Daryo.uz",
                     url="https://daryo.uz/rss/",
+                    feed_url="https://daryo.uz/rss/",
                     type="rss",
-                    category="Yangiliklar",
+                    category_id="cat_ozbekiston",
+                    category="O‘zbekiston",
                     active=True,
                 ),
                 SourceItem(
                     id="src_gazetauz",
                     name="Gazeta.uz",
                     url="https://www.gazeta.uz/uz/rss/",
+                    feed_url="https://www.gazeta.uz/uz/rss/",
                     type="rss",
-                    category="Yangiliklar",
+                    category_id="cat_ozbekiston",
+                    category="O‘zbekiston",
                     active=True,
                 ),
             ]
@@ -431,8 +508,8 @@ class RSSStorage:
                         data = json.loads(content)
                         self._normalize_and_load(data)
                         logger.info(
-                            f"Loaded local database: {len(self._sources)} sources, "
-                            f"{len(self._channels)} channels, {len(self._posts)} posts in pool."
+                            f"Loaded local database: {len(self._categories)} categories, "
+                            f"{len(self._sources)} sources, {len(self._channels)} channels."
                         )
             except Exception as e:
                 logger.error(f"Error loading local database {self.db_path}: {e}")
@@ -440,6 +517,12 @@ class RSSStorage:
         # 2. Sync with Firestore if active
         if firebase_service.is_initialized():
             try:
+                fs_cats = await firebase_service.db.list_documents("source_categories", limit=100)
+                for c in fs_cats:
+                    citem = CategoryItem.from_dict(c)
+                    if citem.id:
+                        self._categories[citem.id] = citem
+
                 fs_sources = await firebase_service.db.list_documents("sources", limit=500)
                 for s in fs_sources:
                     item = SourceItem.from_dict(s)
@@ -495,6 +578,15 @@ class RSSStorage:
         if not isinstance(data, dict):
             return
 
+        # Categories
+        raw_categories = data.get("categories", {})
+        if isinstance(raw_categories, dict):
+            for k, v in raw_categories.items():
+                if isinstance(v, dict):
+                    v.setdefault("id", k)
+                    cat = CategoryItem.from_dict(v)
+                    self._categories[cat.id] = cat
+
         # Sources
         raw_sources = data.get("sources", {})
         if isinstance(raw_sources, dict):
@@ -513,7 +605,9 @@ class RSSStorage:
                         id=k,
                         name=str(v.get("title") or "Nomsiz RSS"),
                         url=str(v.get("url") or v.get("link") or ""),
+                        feed_url=str(v.get("url") or v.get("link") or ""),
                         type="rss",
+                        category_id="cat_ozbekiston",
                         category="Yangiliklar",
                         active=True,
                         last_fetch_at=v.get("last_checked"),
@@ -571,6 +665,7 @@ class RSSStorage:
         """Atomically saves in-memory state to disk in JSON format with tempfile swap."""
         payload = {
             "version": 2,
+            "categories": {k: v.to_dict() for k, v in self._categories.items()},
             "sources": {k: v.to_dict() for k, v in self._sources.items()},
             "channels": {str(k): v.to_dict() for k, v in self._channels.items()},
             "posts": {k: v.to_dict() for k, v in self._posts.items()},
@@ -592,6 +687,34 @@ class RSSStorage:
                     os.remove(tmp_path)
                 except Exception:
                     pass
+
+    # ==========================================================================
+    # CATEGORY OPERATIONS
+    # ==========================================================================
+
+    async def get_all_categories(self, active_only: bool = False) -> List[CategoryItem]:
+        await self.init()
+        cats = list(self._categories.values())
+        if active_only:
+            cats = [c for c in cats if c.active]
+        cats.sort(key=lambda c: c.sort_order)
+        return cats
+
+    async def get_category(self, cat_id: str) -> Optional[CategoryItem]:
+        await self.init()
+        return self._categories.get(cat_id)
+
+    async def get_sources_by_category(self, cat_id: str, active_only: bool = True) -> List[SourceItem]:
+        await self.init()
+        cat = self._categories.get(cat_id)
+        cat_name = cat.name.lower() if cat else ""
+        res = []
+        for s in self._sources.values():
+            if active_only and not s.active:
+                continue
+            if s.category_id == cat_id or (cat_name and s.category.lower() == cat_name):
+                res.append(s)
+        return res
 
     # ==========================================================================
     # SOURCE OPERATIONS (Super Admin Only)

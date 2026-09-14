@@ -115,6 +115,14 @@ class Config:
             except Exception as e:
                 logger.error(f"error_type=FirebaseConfigError message=Failed to load credentials from file {file_path}: {e}")
 
+        # Normalize keys if uppercase or prefixed (e.g. FIREBASE_PROJECT_ID -> project_id)
+        if self.firebase_service_account and isinstance(self.firebase_service_account, dict):
+            normalized = {}
+            for k, v in self.firebase_service_account.items():
+                clean_k = k.lower().replace("firebase_", "")
+                normalized[clean_k] = v
+            self.firebase_service_account = normalized
+
         # Individual environment variables fallback (Render friendly)
         if not self.firebase_service_account:
             client_email = os.getenv("FIREBASE_CLIENT_EMAIL", "").strip()
@@ -128,6 +136,17 @@ class Config:
                     "client_email": client_email,
                     "token_uri": "https://oauth2.googleapis.com/token",
                 }
+        else:
+            if not self.firebase_service_account.get("project_id"):
+                self.firebase_service_account["project_id"] = (
+                    os.getenv("FIREBASE_PROJECT_ID", "").strip() or self.firebase_project_id
+                )
+            if not self.firebase_service_account.get("client_email"):
+                self.firebase_service_account["client_email"] = os.getenv("FIREBASE_CLIENT_EMAIL", "").strip()
+            if not self.firebase_service_account.get("private_key"):
+                self.firebase_service_account["private_key"] = os.getenv("FIREBASE_PRIVATE_KEY", "").strip()
+            if not self.firebase_service_account.get("type"):
+                self.firebase_service_account["type"] = "service_account"
 
         # Sanitize private_key if needed (e.g. literal escaped \n from env vars)
         if self.firebase_service_account and isinstance(self.firebase_service_account.get("private_key"), str):

@@ -96,12 +96,77 @@ def get_channel_detail_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
     )
 
 
+def get_channel_categories_keyboard(
+    channel_id: int,
+    categories: List[CategoryItem],
+    sources_by_cat: Dict[str, List[SourceItem]],
+    selected_source_ids: List[str],
+) -> InlineKeyboardMarkup:
+    """Displays category selection overview for a channel with counts (e.g. O‘zbekiston (3/4))."""
+    buttons = []
+    selected_set = set(selected_source_ids)
+
+    for cat in categories:
+        cat_sources = sources_by_cat.get(cat.id, [])
+        if not cat_sources:
+            continue
+        total_count = len(cat_sources)
+        selected_count = sum(1 for s in cat_sources if s.id in selected_set)
+
+        status_icon = "✅" if selected_count == total_count and total_count > 0 else ("🔘" if selected_count > 0 else "📁")
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{status_icon} {cat.name} ({selected_count}/{total_count})",
+                callback_data=f"ch_cat_view:{channel_id}:{cat.id}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="✅ Hammasini tanlash", callback_data=f"ch_src_bulk:{channel_id}:all:select"),
+        InlineKeyboardButton(text="🧹 Tozalash", callback_data=f"ch_src_bulk:{channel_id}:all:clear"),
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{channel_id}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_category_sources_keyboard(
+    channel_id: int,
+    category: CategoryItem,
+    sources: List[SourceItem],
+    selected_source_ids: List[str],
+) -> InlineKeyboardMarkup:
+    """Displays sources within a category with individual checkboxes and bulk select/clear."""
+    buttons = []
+    selected_set = set(selected_source_ids)
+
+    for src in sources:
+        is_selected = src.id in selected_set
+        checkbox = "☑" if is_selected else "☐"
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{checkbox} {src.name}",
+                callback_data=f"ch_src_toggle:{channel_id}:{category.id}:{src.id}",
+            )
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="✅ Kategoriya: Barchasi", callback_data=f"ch_src_bulk:{channel_id}:{category.id}:select"),
+        InlineKeyboardButton(text="🧹 Tozalash", callback_data=f"ch_src_bulk:{channel_id}:{category.id}:clear"),
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Kategoriyalar ro‘yxati", callback_data=f"ch_sources:{channel_id}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 def get_channel_sources_keyboard(
     channel_id: int,
     all_sources: List[SourceItem],
     selected_source_ids: List[str],
 ) -> InlineKeyboardMarkup:
-    """Displays super admin verified sources with toggle checkboxes."""
+    """Fallback / legacy view for verified sources with toggle checkboxes."""
     buttons = []
     for src in all_sources:
         is_selected = src.id in selected_source_ids
@@ -109,7 +174,7 @@ def get_channel_sources_keyboard(
         buttons.append([
             InlineKeyboardButton(
                 text=f"{checkbox} {src.name} ({src.category})",
-                callback_data=f"ch_src_toggle:{channel_id}:{src.id}",
+                callback_data=f"ch_src_toggle:{channel_id}:all:{src.id}",
             )
         ])
 
@@ -122,9 +187,10 @@ def get_channel_sources_keyboard(
 
 def get_channel_schedule_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
     """
-    Frequency and schedule mode options:
-    Limit selection: 1 ta, 2 ta, 3 ta (strictly capped at 3 for free users)
-    Schedule mode: Instant vs Scheduled times
+    Frequency, schedule mode, and custom times options:
+    - Limit: 1, 2, 3 (strictly capped at 3 for free users)
+    - Schedule mode: Instant vs Custom (Tashkent timezone)
+    - Custom time slot editing & presets
     """
     limit = channel.daily_limit
     b1_check = "✅ " if limit == 1 else ""
@@ -133,19 +199,13 @@ def get_channel_schedule_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
 
     sched_mode = channel.schedule_mode
     instant_check = "✅ " if sched_mode == "instant" else ""
-    scheduled_check = "✅ " if sched_mode == "scheduled" else ""
+    scheduled_check = "✅ " if sched_mode in ("custom", "scheduled") else ""
 
     buttons = [
         [
-            InlineKeyboardButton(text=f"{b1_check}1 ta", callback_data=f"ch_set_limit:{channel.chat_id}:1"),
-            InlineKeyboardButton(text=f"{b2_check}2 ta", callback_data=f"ch_set_limit:{channel.chat_id}:2"),
-            InlineKeyboardButton(text=f"{b3_check}3 ta", callback_data=f"ch_set_limit:{channel.chat_id}:3"),
-        ],
-        [
-            InlineKeyboardButton(
-                text="➕ Ko‘proq post (Shartnoma)",
-                callback_data=f"ch_contract_info:{channel.chat_id}",
-            )
+            InlineKeyboardButton(text=f"{b1_check}1 ta post", callback_data=f"ch_set_limit:{channel.chat_id}:1"),
+            InlineKeyboardButton(text=f"{b2_check}2 ta post", callback_data=f"ch_set_limit:{channel.chat_id}:2"),
+            InlineKeyboardButton(text=f"{b3_check}3 ta post", callback_data=f"ch_set_limit:{channel.chat_id}:3"),
         ],
         [
             InlineKeyboardButton(
@@ -154,22 +214,47 @@ def get_channel_schedule_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
             ),
             InlineKeyboardButton(
                 text=f"{scheduled_mode_label(scheduled_check)}",
-                callback_data=f"ch_set_sched:{channel.chat_id}:scheduled",
+                callback_data=f"ch_set_sched:{channel.chat_id}:custom",
             ),
         ],
-        [
-            InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{channel.chat_id}"),
-        ],
     ]
+
+    if sched_mode in ("custom", "scheduled"):
+        buttons.append([
+            InlineKeyboardButton(
+                text="✏️ Vaqtlarni kiritish / o‘zgartirish",
+                callback_data=f"ch_edit_times:{channel.chat_id}",
+            )
+        ])
+        buttons.append([
+            InlineKeyboardButton(
+                text="🌅 09:00, 14:00, 19:00",
+                callback_data=f"ch_set_preset:{channel.chat_id}:standard",
+            ),
+            InlineKeyboardButton(
+                text="💼 08:30, 13:00, 18:30",
+                callback_data=f"ch_set_preset:{channel.chat_id}:work",
+            ),
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(
+            text="➕ Ko‘proq post (Shartnoma)",
+            callback_data=f"ch_contract_info:{channel.chat_id}",
+        )
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{channel.chat_id}"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def instant_mode_label(prefix: str) -> str:
-    return f"{prefix}⚡ Darhol"
+    return f"{prefix}⚡ Darhol (Instant)"
 
 
 def scheduled_mode_label(prefix: str) -> str:
-    return f"{prefix}🕐 Belgilangan vaqt"
+    return f"{prefix}🕐 Belgilangan (Custom)"
 
 
 def get_contract_contact_keyboard(channel_id: Optional[int] = None) -> InlineKeyboardMarkup:

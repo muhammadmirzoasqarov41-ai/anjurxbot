@@ -27,3 +27,8 @@ class AdminAddSourceState(StatesGroup):
     """Super Admin state for adding a verified RSS/Atom source."""
     waiting_for_url = State()
     waiting_for_name = State()
+
+
+class SetScheduleTimesState(StatesGroup):
+    """Workflow for user entering custom schedule times (e.g. 09:30, 14:00, 20:00)."""
+    waiting_for_times = State()

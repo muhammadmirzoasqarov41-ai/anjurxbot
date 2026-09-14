@@ -1,55 +1,43 @@
 @import "tailwindcss";
 
 :root {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --cyber-black: #05070a;
-  --cyber-panel: #0a0e17;
-  --cyber-border: #151f2e;
-  --neon-green: #00ff66;
-  --neon-glow: rgba(0, 255, 102, 0.2);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
 }
 
-.font-mono-cyber {
-  font-family: 'JetBrains Mono', monospace;
+body {
+  background-color: #09090b;
+  color: #f4f4f5;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
 }
 
-/* Cyber Matrix & Grid Background */
-.bg-cyber-grid {
-  background-color: #040609;
-  background-image: 
-    radial-gradient(ellipse at 50% 0%, rgba(0, 255, 102, 0.08) 0%, transparent 70%),
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 100% 100%, 32px 32px, 32px 32px;
-}
-
-/* Neon Green Glows */
-.neon-glow {
-  box-shadow: 0 0 16px rgba(0, 255, 102, 0.25);
-}
-
-.neon-border {
-  border-color: #00ff66;
-  box-shadow: 0 0 12px rgba(0, 255, 102, 0.15);
-}
-
-.neon-text {
-  color: #00ff66;
-  text-shadow: 0 0 10px rgba(0, 255, 102, 0.4);
-}
-
-/* Custom scrollbar for cyber panels */
+/* Custom subtle scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #06090e;
+  background: #09090b;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: #27272a;
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #00ff66;
+  background: #3f3f46;
+}
+
+/* Mobile viewport adjustments */
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+/* Safe area insets for modern mobile devices */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 16px);
 }
