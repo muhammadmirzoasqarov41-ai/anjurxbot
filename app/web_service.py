@@ -261,10 +261,10 @@ def create_web_app() -> web.Application:
 
     # Static files if dist exists
     dist_dir = os.path.join(os.getcwd(), "dist")
-    if os.path.exists(dist_dir):
+    if os.path.exists(dist_dir) and os.path.exists(os.path.join(dist_dir, "assets")):
         app.router.add_static("/assets", path=os.path.join(dist_dir, "assets"), show_index=False)
-        app.router.add_get("/", handle_spa_fallback)
-        app.router.add_get("/{tail:.*}", handle_spa_fallback)
+    app.router.add_get("/", handle_spa_fallback)
+    app.router.add_get("/{tail:.*}", handle_spa_fallback)
 
     return app
 
@@ -282,12 +282,12 @@ async def start_telegram_polling(bot: Bot, dp: Dispatcher):
     health_service.mark_polling_started()
 
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.delete_webhook(drop_pending_updates=False)
         await setup_bot_commands(bot)
     except Exception as e:
         logger.warning(f"Error during bot initialization: {e}")
 
-    backoff = 2
+    backoff = 5
     allowed_updates = [
         "message",
         "edited_message",
@@ -304,9 +304,16 @@ async def start_telegram_polling(bot: Bot, dp: Dispatcher):
             await dp.start_polling(bot, allowed_updates=allowed_updates, handle_signals=False)
             break
         except TelegramConflictError:
-            logger.warning(f"TelegramConflictError detected (another bot instance running). Backoff {backoff}s...")
+            logger.warning(
+                f"TelegramConflictError: Another bot instance is currently active (Render rolling deployment). "
+                f"Waiting {backoff}s for previous instance to yield..."
+            )
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 60)
+            backoff = min(backoff + 5, 45)
+            try:
+                await bot.delete_webhook(drop_pending_updates=False)
+            except Exception:
+                pass
         except asyncio.CancelledError:
             logger.info("Telegram polling cancelled cleanly.")
             break
@@ -358,6 +365,10 @@ async def run_services():
     gardener.stop()
 
     if polling_task and not polling_task.done():
+        try:
+            await dp.stop_polling()
+        except Exception:
+            pass
         polling_task.cancel()
         try:
             await polling_task

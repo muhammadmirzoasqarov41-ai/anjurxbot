@@ -177,13 +177,13 @@ class ChannelItem:
     def from_dict(cls, d: Dict[str, Any]) -> "ChannelItem":
         cid = 0
         try:
-            cid = int(d.get("chat_id", 0))
+            cid = int(d.get("chat_id") or d.get("id") or d.get("_id") or 0)
         except (ValueError, TypeError):
             cid = 0
 
         owner = 0
         try:
-            owner = int(d.get("owner_user_id") or d.get("added_by") or 0)
+            owner = int(d.get("owner_user_id") or d.get("added_by") or d.get("user_id") or d.get("owner_id") or 0)
         except (ValueError, TypeError):
             owner = 0
 
@@ -445,11 +445,29 @@ class RSSStorage:
                     item = SourceItem.from_dict(s)
                     self._sources[item.id] = item
 
+                try:
+                    fs_agg_sources = await firebase_service.db.list_documents("aggregator_sources", limit=500)
+                    for s in fs_agg_sources:
+                        item = SourceItem.from_dict(s)
+                        if item.id not in self._sources:
+                            self._sources[item.id] = item
+                except Exception:
+                    pass
+
                 fs_channels = await firebase_service.db.list_documents("channels", limit=500)
                 for c in fs_channels:
                     citem = ChannelItem.from_dict(c)
                     if citem.chat_id != 0:
                         self._channels[citem.chat_id] = citem
+
+                try:
+                    fs_agg_channels = await firebase_service.db.list_documents("aggregator_destinations", limit=500)
+                    for c in fs_agg_channels:
+                        citem = ChannelItem.from_dict(c)
+                        if citem.chat_id != 0 and citem.chat_id not in self._channels:
+                            self._channels[citem.chat_id] = citem
+                except Exception:
+                    pass
 
                 fs_posts = await firebase_service.db.list_documents("posts", limit=1000)
                 for p in fs_posts:
@@ -685,12 +703,14 @@ class RSSStorage:
         return ch
 
     async def get_channels_for_user(self, user_id: int) -> List[ChannelItem]:
-        """Returns only channels owned by user_id. Prevents IDOR!"""
+        """Returns channels owned by user_id. Prevents IDOR! Super admin also sees unassigned."""
         await self.init()
         today = get_today_tashkent_str()
         results = []
+        uid = int(user_id)
+        is_super = config.is_super_admin(uid)
         for ch in self._channels.values():
-            if ch.owner_user_id == int(user_id):
+            if ch.owner_user_id == uid or (is_super and ch.owner_user_id == 0):
                 ch.reset_daily_if_needed(today)
                 results.append(ch)
         return results
@@ -743,7 +763,9 @@ class RSSStorage:
             await self._save_local()
             if firebase_service.is_initialized():
                 try:
-                    await firebase_service.db.set_document("channels", str(cid), channel.to_dict())
+                    ch_dict = channel.to_dict()
+                    await firebase_service.db.set_document("channels", str(cid), ch_dict)
+                    await firebase_service.db.set_document("aggregator_destinations", str(cid), ch_dict)
                 except Exception as e:
                     logger.warning(f"Firestore set_document failed for channel {cid}: {e}")
 

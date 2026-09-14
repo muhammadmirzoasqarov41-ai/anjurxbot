@@ -21,6 +21,17 @@ class ParsedItem:
     summary: str
     author: Optional[str] = None
     published: Optional[str] = None
+    content: Optional[str] = None
+    image_url: Optional[str] = None
+    media_type: Optional[str] = None
+
+    @property
+    def guid(self) -> str:
+        return self.id
+
+    @property
+    def description(self) -> str:
+        return self.summary
 
     def get_hash(self) -> str:
         """Returns stable unique hash for this item."""
@@ -169,8 +180,24 @@ class FeedParser:
             item_link = elem.findtext("link", default="").strip()
             guid = elem.findtext("guid", default=item_link).strip()
             desc = elem.findtext("description", default="")
+            encoded_content = elem.findtext("{http://purl.org/rss/1.0/modules/content/}encoded") or elem.findtext("content") or ""
             pub_date = elem.findtext("pubDate", default="")
             author = elem.findtext("author") or elem.findtext("{http://purl.org/dc/elements/1.1/}creator")
+
+            image_url = None
+            media_type = None
+            enclosure = elem.find("enclosure")
+            if enclosure is not None and enclosure.attrib.get("url"):
+                image_url = enclosure.attrib.get("url")
+                media_type = enclosure.attrib.get("type", "image/jpeg")
+            else:
+                for sub in elem:
+                    if "content" in sub.tag.lower() or "thumbnail" in sub.tag.lower():
+                        url_attr = sub.attrib.get("url")
+                        if url_attr:
+                            image_url = url_attr
+                            media_type = sub.attrib.get("type", "image/jpeg")
+                            break
 
             items.append(
                 ParsedItem(
@@ -180,6 +207,9 @@ class FeedParser:
                     summary=clean_html(desc),
                     author=author.strip() if author else None,
                     published=pub_date.strip() if pub_date else None,
+                    content=clean_html(encoded_content) if encoded_content else clean_html(desc),
+                    image_url=image_url,
+                    media_type=media_type,
                 )
             )
 
@@ -227,6 +257,17 @@ class FeedParser:
                         author = find_text_any_ns(sub, "name").strip()
                         break
 
+                content_raw = find_text_any_ns(child, "content") or summary
+                image_url = None
+                media_type = None
+                for sub in child:
+                    if sub.tag.split("}")[-1].lower() == "link":
+                        rel = sub.attrib.get("rel", "")
+                        if "enclosure" in rel or "image" in sub.attrib.get("type", ""):
+                            image_url = sub.attrib.get("href")
+                            media_type = sub.attrib.get("type", "image/jpeg")
+                            break
+
                 items.append(
                     ParsedItem(
                         id=item_id,
@@ -235,6 +276,9 @@ class FeedParser:
                         summary=clean_html(summary),
                         author=author,
                         published=published.strip() if published else None,
+                        content=clean_html(content_raw),
+                        image_url=image_url,
+                        media_type=media_type,
                     )
                 )
 
@@ -323,6 +367,9 @@ class FeedParser:
             elif "author" in it and isinstance(it["author"], dict):
                 author = it["author"].get("name")
 
+            content_html = it.get("content_html") or it.get("content_text") or summary
+            img = it.get("image") or it.get("banner_image")
+
             items.append(
                 ParsedItem(
                     id=item_id or item_url,
@@ -331,6 +378,9 @@ class FeedParser:
                     summary=clean_html(summary),
                     author=author,
                     published=pub,
+                    content=clean_html(content_html),
+                    image_url=img,
+                    media_type="image/jpeg" if img else None,
                 )
             )
 
