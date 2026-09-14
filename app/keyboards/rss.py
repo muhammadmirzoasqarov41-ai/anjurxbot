@@ -8,10 +8,12 @@ Implements the exact user flow:
 - Post Frequency & Schedule: 1 ta, 2 ta, 3 ta; Instant vs Scheduled times
 - Super Admin Panel keyboards
 """
-from typing import List, Optional, Any
+from __future__ import annotations
+
+from typing import List, Optional, Any, Dict
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.config import config
-from app.services.rss_storage import ChannelItem, SourceItem
+from app.services.rss_storage import ChannelItem, SourceItem, CategoryItem
 
 
 def get_main_menu_keyboard(user_id: Optional[int] = None) -> InlineKeyboardMarkup:
