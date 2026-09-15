@@ -24,7 +24,7 @@ app.use(express.urlencoded({ extended: true }));
 // --------------------------------------------------------------------------
 const SUPER_ADMIN_ID = parseInt(process.env.SUPER_ADMIN_ID || process.env.ADMIN_ID || '8157452043', 10);
 const configuredPassword = (process.env.ADMIN_PASSWORD || process.env.WEB_ADMIN_KEY || '').trim();
-const VALID_PASSWORDS = new Set<string>(['anjurx2026']);
+const VALID_PASSWORDS = new Set<string>(['salom12']);
 if (configuredPassword) VALID_PASSWORDS.add(configuredPassword);
 
 // --------------------------------------------------------------------------
@@ -208,6 +208,7 @@ export interface ChannelRecord {
   schedule_mode: string;
   schedule_times: string[];
   selected_sources: string[];
+  post_language?: string;
   today_delivered_count: number;
   today_delivered_slots?: string[];
   today_date: string;
@@ -398,171 +399,9 @@ function loadDatabase(): UnifiedDatabaseState {
     }
   }
 
-  // Seed default sources if empty or minimal
-  if (Object.keys(data.sources).length === 0 || !data.sources.src_kunuz) {
-    data.sources = {
-      src_kunuz: {
-        id: 'src_kunuz',
-        name: 'Kun.uz',
-        url: 'https://kun.uz/news/rss',
-        feed_url: 'https://kun.uz/news/rss',
-        website_url: 'https://kun.uz',
-        type: 'rss',
-        category_id: 'cat_ozbekiston',
-        category: 'O‘zbekiston',
-        description: 'Kun.uz rasmiy yangiliklar lentasi',
-        language: 'uz',
-        country: 'UZ',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 24,
-      },
-      src_daryouz: {
-        id: 'src_daryouz',
-        name: 'Daryo.uz',
-        url: 'https://daryo.uz/rss/',
-        feed_url: 'https://daryo.uz/rss/',
-        website_url: 'https://daryo.uz',
-        type: 'rss',
-        category_id: 'cat_ozbekiston',
-        category: 'O‘zbekiston',
-        description: 'Daryo.uz tezkor yangiliklar',
-        language: 'uz',
-        country: 'UZ',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 18,
-      },
-      src_gazetauz: {
-        id: 'src_gazetauz',
-        name: 'Gazeta.uz',
-        url: 'https://www.gazeta.uz/uz/rss/',
-        feed_url: 'https://www.gazeta.uz/uz/rss/',
-        website_url: 'https://www.gazeta.uz',
-        type: 'rss',
-        category_id: 'cat_ozbekiston',
-        category: 'O‘zbekiston',
-        description: 'Gazeta.uz tahliliy maqolalar va yangiliklar',
-        language: 'uz',
-        country: 'UZ',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 15,
-      },
-      src_bbcro: {
-        id: 'src_bbcro',
-        name: 'BBC O‘zbek',
-        url: 'https://www.bbc.com/uzbek/index.xml',
-        feed_url: 'https://www.bbc.com/uzbek/index.xml',
-        website_url: 'https://bbc.com/uzbek',
-        type: 'rss',
-        category_id: 'cat_jahon',
-        category: 'Jahon',
-        description: 'Dunyo yangiliklari va reportajlar',
-        language: 'uz',
-        country: 'GLOBAL',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 19,
-      },
-      src_theverge: {
-        id: 'src_theverge',
-        name: 'The Verge',
-        url: 'https://www.theverge.com/rss/index.xml',
-        feed_url: 'https://www.theverge.com/rss/index.xml',
-        website_url: 'https://theverge.com',
-        type: 'rss',
-        category_id: 'cat_texnologiya',
-        category: 'Texnologiya',
-        description: 'Technology, gadgets and AI news',
-        language: 'en',
-        country: 'US',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 32,
-      },
-      src_spot: {
-        id: 'src_spot',
-        name: 'Spot.uz',
-        url: 'https://www.spot.uz/oz/rss/',
-        feed_url: 'https://www.spot.uz/oz/rss/',
-        website_url: 'https://spot.uz',
-        type: 'rss',
-        category_id: 'cat_iqtisodiyot',
-        category: 'Iqtisodiyot va Biznes',
-        description: 'Biznes, moliya va bozor tahlili',
-        language: 'uz',
-        country: 'UZ',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 14,
-      },
-      src_championat: {
-        id: 'src_championat',
-        name: 'Championat.asia',
-        url: 'https://championat.asia/uz/rss',
-        feed_url: 'https://championat.asia/uz/rss',
-        website_url: 'https://championat.asia',
-        type: 'rss',
-        category_id: 'cat_sport',
-        category: 'Sport',
-        description: 'O‘zbekiston va jahon futboli, sport yangiliklari',
-        language: 'uz',
-        country: 'UZ',
-        active: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        last_fetch_at: new Date().toISOString(),
-        last_success_at: new Date().toISOString(),
-        last_error: null,
-        error_count: 0,
-        etag: null,
-        last_modified: null,
-        posts_count: 21,
-      },
-    };
+  // Mock sources are strictly disabled. Real sources are loaded from Firestore.
+  if (!data.sources) {
+    data.sources = {};
   }
 
   // Ensure each source has category_id linked properly
@@ -577,122 +416,25 @@ function loadDatabase(): UnifiedDatabaseState {
     }
   }
 
-  // Check legacy subscribers and normalize to channels
-  if (!data.channels || Object.keys(data.channels).length === 0) {
+  // Ensure collections are initialized as empty objects if absent
+  if (!data.channels) {
     data.channels = {};
-    if (data.subscribers) {
-      for (const [k, v] of Object.entries(data.subscribers as Record<string, any>)) {
-        const cid = parseInt(k, 10);
-        data.channels[k] = {
-          chat_id: cid,
-          title: v.title || `Kanal ${k}`,
-          username: null,
-          owner_user_id: cid > 0 ? cid : SUPER_ADMIN_ID,
-          active: true,
-          can_post: true,
-          daily_limit: 3,
-          plan: 'free',
-          schedule_mode: 'instant',
-          schedule_times: ['09:00', '14:00', '19:00'],
-          selected_sources: Object.keys(data.sources),
-          today_delivered_count: 1,
-          today_date: getTashkentDateStr(),
-          last_delivered_at: new Date().toISOString(),
-          total_delivered_count: 18,
-          created_at: v.joined_at || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-      }
-    }
   }
 
-  // Ensure default super admin user exists
-  if (!data.users || Object.keys(data.users).length === 0) {
-    data.users = {
-      [SUPER_ADMIN_ID.toString()]: {
-        user_id: SUPER_ADMIN_ID,
-        username: 'usafes',
-        first_name: 'Super Admin',
-        plan: 'contract',
-        custom_limit: 50,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-    };
+  if (!data.users) {
+    data.users = {};
   }
 
-  // Ensure recent posts exist
-  if (!data.recent_posts || data.recent_posts.length === 0) {
-    data.recent_posts = [
-      {
-        signature: `src_kunuz:post1:${SUPER_ADMIN_ID}`,
-        source_id: 'src_kunuz',
-        external_post_id: 'post1',
-        channel_id: SUPER_ADMIN_ID,
-        channel_title: '@usafes (Super Admin)',
-        title: 'O‘zbekistonda IT va sun’iy intellekt sohasidagi yangi islohotlar',
-        url: 'https://kun.uz/news/2026/09/14/it-islohotlar',
-        telegram_message_id: 101,
-        delivered_at: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-      },
-      {
-        signature: `src_daryouz:post2:${SUPER_ADMIN_ID}`,
-        source_id: 'src_daryouz',
-        external_post_id: 'post2',
-        channel_id: SUPER_ADMIN_ID,
-        channel_title: '@usafes (Super Admin)',
-        title: 'Toshkentda raqamli texnologiyalar haftaligi boshlandi',
-        url: 'https://daryo.uz/2026/09/14/texnologiyalar-haftaligi',
-        telegram_message_id: 102,
-        delivered_at: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-      },
-    ];
+  if (!data.recent_posts) {
+    data.recent_posts = [];
   }
 
-  // Seed sample queued pool posts if empty
-  if (!data.posts || Object.keys(data.posts).length === 0) {
-    data.posts = {
-      post_kunuz_01: {
-        post_id: 'post_kunuz_01',
-        source_id: 'src_kunuz',
-        source_name: 'Kun.uz',
-        external_post_id: 'ext_01',
-        title: 'O‘zbekiston va mintaqaviy iqtisodiy hamkorlik bo‘yicha yangi kelishuvlar',
-        description: 'Mintaqaviy savdo aylanmasini oshirish bo‘yicha strategik dastur tasdiqlandi.',
-        content: 'Mintaqaviy savdo aylanmasini oshirish bo‘yicha strategik dastur tasdiqlandi.',
-        url: 'https://kun.uz/news/2026/09/14/iqtisodiy-hamkorlik',
-        image_url: 'https://storage.kun.uz/source/10/photo_2026.jpg',
-        media_type: 'image/jpeg',
-        published_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-        fetched_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-        expires_at: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
-        status: 'queued',
-        assigned_channel_id: null,
-        delivered_at: null,
-        attempts: 0,
-        last_error: null,
-      },
-      post_daryo_02: {
-        post_id: 'post_daryo_02',
-        source_id: 'src_daryouz',
-        source_name: 'Daryo.uz',
-        external_post_id: 'ext_02',
-        title: 'Energetika sohasida qayta tiklanuvchi manbalar ulushi 25 foizga yetkaziladi',
-        description: 'Yangi quyosh va shamol elektr stansiyalari ishga tushirilmoqda.',
-        content: 'Yangi quyosh va shamol elektr stansiyalari ishga tushirilmoqda.',
-        url: 'https://daryo.uz/2026/09/14/energetika-quyosh',
-        image_url: null,
-        media_type: null,
-        published_at: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
-        fetched_at: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-        expires_at: new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString(),
-        status: 'queued',
-        assigned_channel_id: null,
-        delivered_at: null,
-        attempts: 0,
-        last_error: null,
-      },
-    };
+  if (!data.posts) {
+    data.posts = {};
+  }
+
+  if (!data.delivered_signatures) {
+    data.delivered_signatures = [];
   }
 
   return data;
@@ -868,22 +610,10 @@ interface SystemLog {
 
 const systemLogs: SystemLog[] = [
   {
-    timestamp: new Date(Date.now() - 300000).toISOString(),
+    timestamp: new Date().toISOString(),
     level: 'INFO',
     component: 'Orchestrator',
     message: 'AnjurXBot Web Service initialized on port 3000.',
-  },
-  {
-    timestamp: new Date(Date.now() - 250000).toISOString(),
-    level: 'INFO',
-    component: 'Gardener',
-    message: 'Background worker active. 3 sources checked with zero errors.',
-  },
-  {
-    timestamp: new Date(Date.now() - 180000).toISOString(),
-    level: 'INFO',
-    component: 'Distribution',
-    message: 'Fair queue distribution cycle completed. 1 post delivered.',
   },
 ];
 
@@ -1004,15 +734,23 @@ app.post('/api/auth/logout', (req: Request, res: Response) => {
 });
 
 app.get('/api/auth/session', (req: Request, res: Response) => {
-  return res.json({
-    authenticated: true,
-    user: {
-      user_id: SUPER_ADMIN_ID,
-      role: 'super_admin',
-      name: 'Super Admin',
-    },
-    expires_at: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
-  });
+  const authHeader = req.headers.authorization || req.headers['x-admin-token'];
+  if (typeof authHeader === 'string') {
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const session = activeSessions[token];
+    if (session && session.expiresAt > Date.now()) {
+      return res.json({
+        authenticated: true,
+        user: {
+          user_id: session.userId,
+          role: session.role,
+          name: 'Super Admin',
+        },
+        expires_at: new Date(session.expiresAt).toISOString(),
+      });
+    }
+  }
+  return res.status(401).json({ authenticated: false });
 });
 
 // ==========================================================================
@@ -1075,7 +813,7 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
       total_users: usersList.length,
       contract_users: usersList.filter((u) => u.plan === 'contract').length,
       posts_delivered_today: deliveredToday,
-      total_delivered: db.posts_delivered || deliveredToday,
+      total_delivered: Number(db.posts_delivered || 0),
       pool_queued: queuedPosts,
       pool_delivered: deliveredPosts,
       pool_expired: expiredPosts,
@@ -1164,11 +902,14 @@ app.patch('/api/channels/:chat_id', authMiddleware, (req: Request, res: Response
     return res.status(404).json({ error: 'Kanal topilmadi' });
   }
 
-  const { active, daily_limit, plan, schedule_mode, schedule_times } = req.body;
+  const { active, daily_limit, plan, schedule_mode, schedule_times, post_language } = req.body;
 
   if (typeof active === 'boolean') channel.active = active;
   if (schedule_mode) channel.schedule_mode = schedule_mode;
   if (Array.isArray(schedule_times)) channel.schedule_times = schedule_times;
+  if (post_language && ['uz', 'ru', 'en', 'auto'].includes(post_language.toLowerCase())) {
+    channel.post_language = post_language.toLowerCase();
+  }
 
   if (plan === 'free' || plan === 'contract') {
     channel.plan = plan;
@@ -1441,8 +1182,23 @@ app.patch('/api/users/:user_id/contract', authMiddleware, (req: Request, res: Re
 // ==========================================================================
 
 // --- Categories CRUD ---
-app.get('/api/categories', authMiddleware, (req: Request, res: Response) => {
+app.get('/api/categories', authMiddleware, async (req: Request, res: Response) => {
+  const fsDb = getFirestoreDb();
   const db = loadDatabase();
+  if (fsDb) {
+    try {
+      const catSnap = await fsDb.collection('source_categories').get();
+      if (!catSnap.empty) {
+        db.categories = {};
+        for (const doc of catSnap.docs) {
+          db.categories[doc.id] = { ...doc.data(), id: doc.id } as CategoryRecord;
+        }
+      }
+    } catch (e: any) {
+      console.warn('Could not read categories from Firestore:', e.message);
+    }
+  }
+
   const categoriesList = Object.values(db.categories || {}).map((cat) => {
     const source_count = Object.values(db.sources).filter(
       (s) => s.category_id === cat.id || s.category.toLowerCase() === cat.name.toLowerCase()
@@ -1680,8 +1436,28 @@ app.post('/api/sources/test', authMiddleware, async (req: Request, res: Response
 });
 
 // --- Sources CRUD ---
-app.get('/api/sources', authMiddleware, (req: Request, res: Response) => {
-  const db = loadDatabase();
+app.get('/api/sources', authMiddleware, async (req: Request, res: Response) => {
+  const fsDb = getFirestoreDb();
+  let db = loadDatabase();
+
+  if (fsDb) {
+    try {
+      const snap = await fsDb.collection('sources').get();
+      const freshSources: Record<string, SourceRecord> = {};
+      for (const doc of snap.docs) {
+        freshSources[doc.id] = { ...doc.data(), id: doc.id } as SourceRecord;
+      }
+      db.sources = freshSources;
+      // Also cache to local file without triggering re-sync
+      const dir = path.dirname(DB_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(`${DB_FILE}.tmp`, JSON.stringify(db, null, 2), 'utf-8');
+      fs.renameSync(`${DB_FILE}.tmp`, DB_FILE);
+    } catch (e: any) {
+      console.warn('Could not fetch sources from Firestore, using local fallback:', e.message);
+    }
+  }
+
   let list = Object.values(db.sources);
 
   const search = String(req.query.search || '').trim().toLowerCase();
@@ -1900,7 +1676,7 @@ app.post('/api/sources/sync-all', authMiddleware, (req: Request, res: Response) 
   });
 });
 
-app.delete('/api/sources/:id', authMiddleware, (req: Request, res: Response) => {
+app.delete('/api/sources/:id', authMiddleware, async (req: Request, res: Response) => {
   const sid = String(req.params.id);
   const db = loadDatabase();
 
@@ -1917,6 +1693,16 @@ app.delete('/api/sources/:id', authMiddleware, (req: Request, res: Response) => 
   }
 
   saveDatabase(db);
+
+  const fsDb = getFirestoreDb();
+  if (fsDb) {
+    try {
+      await fsDb.collection('sources').doc(sid).delete();
+    } catch (e: any) {
+      console.warn('Could not delete source from Firestore:', e.message);
+    }
+  }
+
   addSystemLog('WARNING', 'Source', `Manba o‘chirildi: '${name}' (${sid})`);
 
   return res.json({

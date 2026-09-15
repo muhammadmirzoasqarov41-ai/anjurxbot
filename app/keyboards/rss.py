@@ -70,6 +70,7 @@ def get_channel_detail_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
     Detailed actions for an individual channel:
     [📰 Manbalar]
     [⏰ Post vaqti]
+    [🌐 Post tili]
     [📊 Statistika]
     [⏸ To‘xtatish] / [▶️ Davom ettirish]
     [🗑 Kanalni uzish]
@@ -78,11 +79,18 @@ def get_channel_detail_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
     status_btn_text = "⏸ To‘xtatish" if channel.active else "▶️ Davom ettirish"
     status_btn_cb = f"ch_toggle:{channel.chat_id}"
 
+    lang_code = getattr(channel, "post_language", "uz") or "uz"
+    lang_flags = {"uz": "🇺🇿 O‘zbekcha", "ru": "🇷🇺 Русский", "en": "🇬🇧 English", "auto": "🔄 Avtomatik"}
+    lang_btn_text = f"🌐 Post tili: {lang_flags.get(lang_code, '🇺🇿')}"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📰 Manbalar", callback_data=f"ch_sources:{channel.chat_id}"),
                 InlineKeyboardButton(text="⏰ Post vaqti", callback_data=f"ch_schedule:{channel.chat_id}"),
+            ],
+            [
+                InlineKeyboardButton(text=lang_btn_text, callback_data=f"ch_lang:{channel.chat_id}"),
             ],
             [
                 InlineKeyboardButton(text="📊 Statistika", callback_data=f"ch_stats:{channel.chat_id}"),
@@ -96,6 +104,29 @@ def get_channel_detail_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def get_channel_language_keyboard(channel_id: int, current_lang: str = "uz") -> InlineKeyboardMarkup:
+    """Keyboard for selecting channel post language (uz, ru, en, auto)."""
+    langs = [
+        ("uz", "🇺🇿 O‘zbekcha"),
+        ("ru", "🇷🇺 Русский"),
+        ("en", "🇬🇧 English"),
+        ("auto", "🔄 Avtomatik (Asl tilda)"),
+    ]
+    buttons = []
+    for code, title in langs:
+        check = "✅ " if code == current_lang else ""
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{check}{title}",
+                callback_data=f"ch_set_lang:{channel_id}:{code}",
+            )
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{channel_id}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_channel_categories_keyboard(

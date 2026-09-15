@@ -17,6 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   botStatus,
   refreshing,
   onRefresh,
+  onLogout,
   hasAlerts,
   onOpenAlerts,
 }) => {
@@ -77,6 +78,17 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-emerald-400' : ''}`} />
           </button>
+
+          {/* Logout Button */}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Tizimdan chiqish"
+              className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -25,6 +25,7 @@ import sys
 import time
 import secrets
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional, List, Set
 
 from aiohttp import web
@@ -52,7 +53,7 @@ logger = logging.getLogger("anjurxbot.web_service")
 # --------------------------------------------------------------------------
 SUPER_ADMIN_ID = config.super_admin_id or 8157452043
 _configured_pw = (os.getenv("ADMIN_PASSWORD") or os.getenv("WEB_ADMIN_KEY") or "").strip()
-VALID_PASSWORDS = {"anjurx2026"}
+VALID_PASSWORDS = {"salom12"}
 if _configured_pw:
     VALID_PASSWORDS.add(_configured_pw)
 
@@ -1031,14 +1032,352 @@ async def handle_api_import_opml(request: web.Request) -> web.Response:
 # --------------------------------------------------------------------------
 # Static file serving & SPA Fallback
 # --------------------------------------------------------------------------
+def get_dist_dir() -> Optional[Path]:
+    """Finds the production frontend dist directory across possible deployment paths."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "dist",
+        Path(os.getcwd()) / "dist",
+        Path("/app/applet/dist"),
+        Path("/opt/render/project/src/dist"),
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "index.html").is_file():
+            return c
+    return None
+
+
+def get_standalone_admin_login_html() -> str:
+    """Production-grade Standalone Super Admin Login Portal.
+    
+    Rendered when the compiled Vite React frontend (dist/index.html) is not yet
+    built on disk, ensuring that the root URL ('/') ALWAYS presents the genuine
+    Super Admin Login page rather than an unconfigured landing placeholder.
+    """
+    bot_username = config.bot_username or "AnjurXBot"
+    return f"""<!doctype html>
+<html lang="uz" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AnjurX | Super Admin Kirish</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+      body {{
+        background-color: #09090b;
+        color: #f4f4f5;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+      }}
+      .card {{
+        background-color: #18181b;
+        border: 1px solid #27272a;
+        border-radius: 1.25rem;
+        max-width: 26rem;
+        width: 100%;
+        padding: 2rem 1.75rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      }}
+      .brand-header {{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        margin-bottom: 1.75rem;
+      }}
+      .logo-icon {{
+        width: 3.25rem;
+        height: 3.25rem;
+        border-radius: 1rem;
+        background-color: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #34d399;
+        font-weight: 700;
+        font-size: 1.25rem;
+        font-family: 'JetBrains Mono', monospace;
+        margin-bottom: 1rem;
+      }}
+      .title {{
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.025em;
+      }}
+      .subtitle {{
+        font-size: 0.8125rem;
+        color: #a1a1aa;
+        margin-top: 0.375rem;
+      }}
+      .status-badge {{
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        margin-top: 0.75rem;
+        padding: 0.25rem 0.625rem;
+        border-radius: 9999px;
+        background-color: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+        color: #34d399;
+        font-size: 0.6875rem;
+        font-weight: 600;
+      }}
+      .status-dot {{
+        width: 0.375rem;
+        height: 0.375rem;
+        border-radius: 9999px;
+        background-color: #34d399;
+      }}
+      .form-group {{
+        margin-bottom: 1.125rem;
+      }}
+      .form-label {{
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #d4d4d8;
+        margin-bottom: 0.375rem;
+      }}
+      .form-input {{
+        width: 100%;
+        background-color: #09090b;
+        border: 1px solid #27272a;
+        border-radius: 0.75rem;
+        padding: 0.625rem 0.875rem;
+        font-size: 0.875rem;
+        color: #ffffff;
+        outline: none;
+        transition: border-color 0.15s ease;
+        font-family: 'JetBrains Mono', monospace;
+      }}
+      .form-input:focus {{
+        border-color: #10b981;
+      }}
+      .submit-btn {{
+        width: 100%;
+        background-color: #10b981;
+        color: #09090b;
+        font-weight: 600;
+        font-size: 0.875rem;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        transition: opacity 0.15s ease, background-color 0.15s ease;
+        margin-top: 1.5rem;
+      }}
+      .submit-btn:hover {{
+        background-color: #34d399;
+      }}
+      .submit-btn:disabled {{
+        opacity: 0.5;
+        cursor: not-allowed;
+      }}
+      .alert-box {{
+        display: none;
+        margin-top: 1rem;
+        padding: 0.75rem 0.875rem;
+        border-radius: 0.75rem;
+        font-size: 0.75rem;
+        line-height: 1.4;
+      }}
+      .alert-error {{
+        background-color: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #fca5a5;
+      }}
+      .alert-success {{
+        background-color: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #6ee7b7;
+      }}
+      .footer-note {{
+        text-align: center;
+        margin-top: 1.5rem;
+        font-size: 0.6875rem;
+        color: #71717a;
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="brand-header">
+        <div class="logo-icon">AX</div>
+        <h1 class="title">AnjurX Super Admin</h1>
+        <p class="subtitle">Telegram bot va RSS tizimi boshqaruv markazi</p>
+        <div class="status-badge">
+          <span class="status-dot"></span>
+          <span>Xizmat faol (@{bot_username})</span>
+        </div>
+      </div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="user_id">Super Admin Telegram ID</label>
+          <input
+            id="user_id"
+            name="user_id"
+            type="text"
+            inputmode="numeric"
+            class="form-input"
+            value="8157452043"
+            placeholder="8157452043"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="password">Maxfiy Kalit / Parol</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            class="form-input"
+            placeholder="••••••••"
+            required
+            autofocus
+          />
+        </div>
+
+        <button id="submit-btn" type="submit" class="submit-btn">
+          <span>Kirish (Super Admin)</span>
+        </button>
+
+        <div id="alert-box" class="alert-box"></div>
+      </form>
+
+      <div class="footer-note">
+        Faqat tasdiqlangan Super Admin ID ruxsat etiladi
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById('login-form');
+      const submitBtn = document.getElementById('submit-btn');
+      const alertBox = document.getElementById('alert-box');
+
+      function showAlert(msg, isError = true) {{
+        alertBox.style.display = 'block';
+        alertBox.className = 'alert-box ' + (isError ? 'alert-error' : 'alert-success');
+        alertBox.textContent = msg;
+      }}
+
+      // Check existing session
+      const existingToken = localStorage.getItem('anjurx_admin_token');
+      if (existingToken) {{
+        fetch('/api/auth/session', {{
+          headers: {{ 'Authorization': 'Bearer ' + existingToken }}
+        }}).then(res => {{
+          if (res.ok) {{
+            showAlert('Siz allaqachon tizimga kirgansiz. Sessiya faol!', false);
+          }}
+        }}).catch(() => {{}});
+      }}
+
+      form.addEventListener('submit', async (e) => {{
+        e.preventDefault();
+        const userId = document.getElementById('user_id').value.trim();
+        const password = document.getElementById('password').value.trim();
+
+        if (!userId || !password) {{
+          showAlert('Iltimos, barcha maydonlarni to‘ldiring.');
+          return;
+        }}
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Tekshirilmoqda...';
+
+        try {{
+          const res = await fetch('/api/auth/login', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ user_id: parseInt(userId, 10), password: password }})
+          }});
+
+          const data = await res.json();
+
+          if (res.ok && data.token) {{
+            localStorage.setItem('anjurx_admin_token', data.token);
+            showAlert('Muvaffaqiyatli kirildi! Sahifa yangilanmoqda...', false);
+            setTimeout(() => {{
+              window.location.reload();
+            }}, 800);
+          }} else {{
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Kirish (Super Admin)';
+            showAlert(data.error || 'Kirishda xatolik yuz berdi.');
+          }}
+        }} catch (err) {{
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Kirish (Super Admin)';
+          showAlert('Server bilan aloqa uzildi. Iltimos qaytadan urinib ko‘ring.');
+        }}
+      }});
+    </script>
+  </body>
+</html>
+"""
+
+
 async def handle_spa_fallback(request: web.Request) -> web.Response:
-    dist_index = os.path.join(os.getcwd(), "dist", "index.html")
-    if os.path.exists(dist_index):
-        with open(dist_index, "r", encoding="utf-8") as f:
-            return web.Response(text=f.read(), content_type="text/html")
+    """Production SPA fallback and static file router.
+    
+    Guarantees:
+    - Never serves HTML for /api/* calls (returns JSON 404)
+    - Directly serves static assets (css, js, svg, ico, etc.) if they exist in dist
+    - Serves dist/index.html for SPA routes (/, /admin, /channels, etc.)
+    - If dist/index.html is absent, serves genuine Super Admin Login Portal
+    """
+    # 1. /api/* must NEVER return HTML
+    if request.path.startswith("/api/") or request.path == "/api":
+        return web.json_response({
+            "error": f"API endpoint topilmadi: {request.path}",
+            "status": 404
+        }, status=404)
+
+    dist_dir = get_dist_dir()
+
+    if dist_dir:
+        # 2. Check for exact static file in dist (e.g. /shield.svg, /favicon.ico)
+        rel_path = request.path.lstrip("/")
+        if rel_path:
+            candidate = (dist_dir / rel_path).resolve()
+            try:
+                candidate.relative_to(dist_dir.resolve())
+                if candidate.is_file():
+                    return web.FileResponse(candidate)
+            except (ValueError, Exception):
+                pass
+
+        # 3. Serve dist/index.html with revalidation headers
+        index_file = dist_dir / "index.html"
+        if index_file.is_file():
+            return web.FileResponse(
+                index_file,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+
+    # 4. Standalone Super Admin Login Portal fallback
     return web.Response(
-        text="<html><body><h2>AnjurX | Rss Bot</h2><p>Service active. Visit Telegram bot: @" + (config.bot_username or "AnjurXBot") + "</p></body></html>",
-        content_type="text/html"
+        text=get_standalone_admin_login_html(),
+        content_type="text/html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
     )
 
 
@@ -1087,11 +1426,14 @@ def create_web_app() -> web.Application:
     app.router.add_get("/api/export/opml", handle_api_export_opml)
     app.router.add_post("/api/import/opml", handle_api_import_opml)
 
-    # Static files if dist exists
-    dist_dir = os.path.join(os.getcwd(), "dist")
-    if os.path.exists(dist_dir) and os.path.exists(os.path.join(dist_dir, "assets")):
-        app.router.add_static("/assets", path=os.path.join(dist_dir, "assets"), show_index=False)
+    # Static assets serving
+    dist_dir = get_dist_dir()
+    if dist_dir and (dist_dir / "assets").is_dir():
+        app.router.add_static("/assets", path=str(dist_dir / "assets"), show_index=False)
+
+    # Root, Admin, and SPA Fallback routes
     app.router.add_get("/", handle_spa_fallback)
+    app.router.add_get("/admin", handle_spa_fallback)
     app.router.add_get("/{tail:.*}", handle_spa_fallback)
 
     return app

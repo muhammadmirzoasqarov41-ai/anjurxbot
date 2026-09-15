@@ -32,6 +32,7 @@ from app.keyboards.rss import (
     get_main_menu_keyboard,
     get_channels_list_keyboard,
     get_channel_detail_keyboard,
+    get_channel_language_keyboard,
     get_channel_sources_keyboard,
     get_channel_categories_keyboard,
     get_category_sources_keyboard,
@@ -657,11 +658,20 @@ async def cb_view_channel(callback: CallbackQuery, bot: Bot):
     status_str = "🟢 Faol" if (channel.active and channel.can_post) else ("⏸ To‘xtatilgan" if not channel.active else "⚠️ Huquq yetarli emas")
     mode_str = "⚡ Darhol" if channel.schedule_mode == "instant" else "🕐 Belgilangan vaqt"
     plan_badge = "💼 Shartnoma" if channel.plan == "contract" else "Standart (Bepul)"
+    lang_code = getattr(channel, "post_language", "uz") or "uz"
+    lang_labels = {
+        "uz": "🇺🇿 O‘zbekcha",
+        "ru": "🇷🇺 Русский",
+        "en": "🇬🇧 English",
+        "auto": "🔄 Avtomatik (Asl tilda)",
+    }
+    lang_str = lang_labels.get(lang_code, "🇺🇿 O‘zbekcha")
 
     text = (
         f"📢 <b>Kanal: {channel.title}</b>\n\n"
         f"• <b>Holat:</b> {status_str}\n"
         f"• <b>Tarif:</b> {plan_badge}\n"
+        f"• <b>Post tili:</b> {lang_str}\n"
         f"• <b>Tanlangan manbalar:</b> {len(channel.selected_sources)} ta\n"
         f"• <b>Bugun yuborilgan:</b> {channel.today_delivered_count}/{channel.daily_limit} ta\n"
         f"• <b>Kunlik limit:</b> {channel.daily_limit} ta post\n"
@@ -1223,6 +1233,70 @@ async def cb_channel_stats(callback: CallbackQuery, bot: Bot):
     except Exception:
         await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ch_lang:"))
+async def cb_channel_language(callback: CallbackQuery, bot: Bot):
+    """Displays post language selection options for channel."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    chat_id = int(callback.data.split(":")[1])
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    current_lang = getattr(channel, "post_language", "uz") or "uz"
+    text = (
+        f"🌐 <b>Post tili sozlamasi — {escape_tg_html(channel.title)}</b>\n\n"
+        "Ushbu kanalga yuboriladigan barcha yangiliklar qaysi tilda chiqishini tanlang:\n\n"
+        "• <b>🇺🇿 O‘zbekcha</b> — barcha xabarlar o‘zbek tiliga tarjima qilinadi (standart)\n"
+        "• <b>🇷🇺 Русский</b> — barcha xabarlar rus tiliga tarjima qilinadi\n"
+        "• <b>🇬🇧 English</b> — barcha xabarlar ingliz tiliga tarjima qilinadi\n"
+        "• <b>🔄 Avtomatik</b> — manbaning asl tilida qoldiriladi\n\n"
+        "<i>Tarjimalar Gemini AI orqali real vaqtda amalga oshiriladi.</i>"
+    )
+    kb = get_channel_language_keyboard(chat_id, current_lang)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ch_set_lang:"))
+async def cb_set_channel_language(callback: CallbackQuery, bot: Bot):
+    """Sets channel post language."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    parts = callback.data.split(":")
+    chat_id = int(parts[1])
+    lang = parts[2]
+
+    if lang not in ("uz", "ru", "en", "auto"):
+        await callback.answer("Noto‘g‘ri til kodi.", show_alert=True)
+        return
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    await rss_storage.update_channel_settings(
+        chat_id=chat_id,
+        user_id=user_id,
+        post_language=lang,
+        is_super_admin=is_super_admin(user_id),
+    )
+
+    lang_labels = {
+        "uz": "🇺🇿 O‘zbekcha",
+        "ru": "🇷🇺 Русский",
+        "en": "🇬🇧 English",
+        "auto": "🔄 Avtomatik (Asl tilda)",
+    }
+    await callback.answer(f"✅ Til o‘rnatildi: {lang_labels.get(lang, lang)}", show_alert=False)
+    await cb_view_channel(callback, bot)
 
 
 @router.callback_query(F.data.startswith("ch_disconnect_ask:"))

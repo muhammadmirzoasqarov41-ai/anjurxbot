@@ -10,6 +10,7 @@ import {
   X,
   ChevronRight,
   Shield,
+  LogOut,
 } from 'lucide-react';
 
 interface MoreMenuModalProps {
@@ -23,6 +24,7 @@ export const MoreMenuModal: React.FC<MoreMenuModalProps> = ({
   isOpen,
   onClose,
   onSelectTab,
+  onLogout,
 }) => {
   if (!isOpen) return null;
 
@@ -112,6 +114,19 @@ export const MoreMenuModal: React.FC<MoreMenuModalProps> = ({
             );
           })}
         </div>
+
+        {onLogout && (
+          <button
+            onClick={() => {
+              onClose();
+              onLogout();
+            }}
+            className="w-full mt-3 p-3 bg-red-950/20 hover:bg-red-950/40 border border-red-900/40 rounded-xl text-red-400 hover:text-red-300 flex items-center justify-center gap-2 text-xs font-medium transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Admin Paneldan Chiqish</span>
+          </button>
+        )}
       </div>
     </div>
   );

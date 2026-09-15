@@ -190,6 +190,7 @@ class ChannelItem:
     schedule_mode: str = "instant"  # "instant" or "custom" / "scheduled"
     schedule_times: List[str] = field(default_factory=lambda: ["09:00", "14:00", "19:00"])
     selected_sources: List[str] = field(default_factory=list)  # list of source_ids
+    post_language: str = "uz"  # "uz", "ru", "en", or "auto"
     today_delivered_count: int = 0
     today_delivered_slots: List[str] = field(default_factory=list)
     today_date: str = field(default_factory=get_today_tashkent_str)
@@ -261,6 +262,9 @@ class ChannelItem:
         if mode == "scheduled":
             mode = "custom"
 
+        raw_lang = str(d.get("post_language") or "uz").lower().strip()
+        post_lang = raw_lang if raw_lang in ("uz", "ru", "en", "auto") else "uz"
+
         return cls(
             chat_id=cid,
             title=str(d.get("title") or f"Kanal {cid}"),
@@ -273,6 +277,7 @@ class ChannelItem:
             schedule_mode=mode,
             schedule_times=times,
             selected_sources=srcs,
+            post_language=post_lang,
             today_delivered_count=int(d.get("today_delivered_count", 0)),
             today_delivered_slots=slots,
             today_date=str(d.get("today_date") or get_today_tashkent_str()),
@@ -460,42 +465,8 @@ class RSSStorage:
             for c in default_cats:
                 self._categories[c.id] = c
 
-        if not self._sources:
-            default_sources = [
-                SourceItem(
-                    id="src_kunuz",
-                    name="Kun.uz",
-                    url="https://kun.uz/news/rss",
-                    feed_url="https://kun.uz/news/rss",
-                    type="rss",
-                    category_id="cat_ozbekiston",
-                    category="O‘zbekiston",
-                    active=True,
-                ),
-                SourceItem(
-                    id="src_daryouz",
-                    name="Daryo.uz",
-                    url="https://daryo.uz/rss/",
-                    feed_url="https://daryo.uz/rss/",
-                    type="rss",
-                    category_id="cat_ozbekiston",
-                    category="O‘zbekiston",
-                    active=True,
-                ),
-                SourceItem(
-                    id="src_gazetauz",
-                    name="Gazeta.uz",
-                    url="https://www.gazeta.uz/uz/rss/",
-                    feed_url="https://www.gazeta.uz/uz/rss/",
-                    type="rss",
-                    category_id="cat_ozbekiston",
-                    category="O‘zbekiston",
-                    active=True,
-                ),
-            ]
-            for s in default_sources:
-                self._sources[s.id] = s
-            logger.info(f"Seeded {len(default_sources)} default news sources.")
+        # Do not seed mock/demo sources. Production sources must come from Firestore.
+        pass
 
     async def _load_data(self):
         """Loads state from local JSON file or Firestore."""
@@ -920,9 +891,10 @@ class RSSStorage:
         schedule_mode: Optional[str] = None,
         schedule_times: Optional[List[str]] = None,
         active: Optional[bool] = None,
+        post_language: Optional[str] = None,
         is_super_admin: bool = False,
     ) -> Optional[ChannelItem]:
-        """Updates daily limits, schedules, and pause/resume with strict limit bounds."""
+        """Updates daily limits, schedules, post language, and pause/resume with strict limit bounds."""
         await self.init()
         async with self._lock:
             channel = self._channels.get(int(chat_id))
@@ -939,6 +911,10 @@ class RSSStorage:
                 channel.schedule_times = schedule_times
             if active is not None:
                 channel.active = active
+            if post_language is not None:
+                clean_lang = post_language.lower().strip()
+                if clean_lang in ("uz", "ru", "en", "auto"):
+                    channel.post_language = clean_lang
 
             channel.updated_at = datetime.utcnow().isoformat()
             await self._save_local()

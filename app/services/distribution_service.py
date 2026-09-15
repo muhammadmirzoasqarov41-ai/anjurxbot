@@ -31,6 +31,7 @@ from app.services.rss_storage import (
 )
 from app.services.feed_fetcher import feed_fetcher
 from app.services.feed_parser import escape_tg_html, truncate_text
+from app.services.gemini_translation import gemini_translation
 
 logger = logging.getLogger("anjurxbot.distribution")
 
@@ -338,9 +339,45 @@ class PostDistributionService:
     ) -> bool:
         """
         Sends formatted news post to Telegram channel.
+        Translates post content according to channel.post_language ('uz', 'ru', 'en', 'auto')
+        using Gemini API with cache (post_id:post_language) and error handling.
         Strict requirement: Destination is channel.chat_id. User DM is NEVER used.
         """
-        formatted_text = self._format_channel_post(post)
+        target_lang = getattr(channel, "post_language", "uz") or "uz"
+        title_to_post = post.title
+        desc_to_post = post.description or ""
+
+        # Find source language if available from registered sources
+        source = rss_storage.get_source(post.source_id)
+        source_lang = getattr(source, "language", None) if source else None
+
+        # Translate post if needed
+        try:
+            translated = await gemini_translation.translate_post(
+                post_id=post.post_id,
+                title=post.title,
+                description=desc_to_post,
+                target_language=target_lang,
+                channel_id=channel.chat_id,
+                source_language=source_lang,
+            )
+            title_to_post = translated.title
+            desc_to_post = translated.description
+        except Exception as trans_err:
+            logger.error(
+                f"[Translation Error] Failed translating post {post.post_id} to '{target_lang}' "
+                f"for channel {channel.title} ({channel.chat_id}): {trans_err}. "
+                "Delivering original post as fallback."
+            )
+            # Fallback to original title and description
+
+        formatted_text = self._format_channel_post(
+            title=title_to_post,
+            description=desc_to_post,
+            url=post.url,
+            source_name=post.source_name,
+            target_lang=target_lang,
+        )
 
         try:
             # If post has a valid photo/image URL, send as photo
@@ -374,7 +411,7 @@ class PostDistributionService:
                 source_id=post.source_id,
                 external_post_id=post.external_post_id,
                 channel_id=channel.chat_id,
-                title=post.title,
+                title=title_to_post,
                 url=post.url,
                 telegram_message_id=msg_id,
             )
@@ -386,7 +423,7 @@ class PostDistributionService:
             )
 
             logger.info(
-                f"[Delivery Success] '{post.title[:35]}' → Kanal: '{channel.title}' "
+                f"[Delivery Success] '{title_to_post[:35]}' [{target_lang}] → Kanal: '{channel.title}' "
                 f"({channel.today_delivered_count}/{channel.daily_limit} today)"
             )
             return True
@@ -451,15 +488,38 @@ class PostDistributionService:
             return False
 
     @staticmethod
-    def _format_channel_post(post: PostItem) -> str:
-        """Formats news item into an elegant, clean Telegram HTML message."""
-        title_escaped = escape_tg_html(post.title)
-        source_escaped = escape_tg_html(post.source_name)
-        clean_desc = truncate_text(post.description or "", 350)
+    def _format_channel_post(
+        title: str,
+        description: str,
+        url: str,
+        source_name: str,
+        target_lang: str = "uz",
+    ) -> str:
+        """Formats news item into an elegant, clean Telegram HTML message in the selected language."""
+        title_escaped = escape_tg_html(title)
+        source_escaped = escape_tg_html(source_name)
+        clean_desc = truncate_text(description or "", 350)
         desc_escaped = escape_tg_html(clean_desc)
 
-        header = f"📰 <b><a href=\"{post.url}\">{title_escaped}</a></b>"
-        source_line = f"📡 <i>Manba: {source_escaped}</i>"
+        # Localized read more label
+        read_more_labels = {
+            "uz": "Batafsil o‘qish",
+            "ru": "Читать полностью",
+            "en": "Read full article",
+            "auto": "Batafsil o‘qish",
+        }
+        source_prefix_labels = {
+            "uz": "Manba",
+            "ru": "Источник",
+            "en": "Source",
+            "auto": "Manba",
+        }
+
+        read_more = read_more_labels.get(target_lang, "Batafsil o‘qish")
+        source_prefix = source_prefix_labels.get(target_lang, "Manba")
+
+        header = f"📰 <b><a href=\"{url}\">{title_escaped}</a></b>"
+        source_line = f"📡 <i>{source_prefix}: {source_escaped}</i>"
 
         lines = [header, source_line]
 
@@ -468,7 +528,7 @@ class PostDistributionService:
             lines.append(desc_escaped)
 
         lines.append("")
-        lines.append(f"🔗 <a href=\"{post.url}\">Batafsil o‘qish</a>")
+        lines.append(f"🔗 <a href=\"{url}\">{read_more}</a>")
 
         return "\n".join(lines)
 

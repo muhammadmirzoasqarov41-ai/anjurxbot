@@ -2,7 +2,7 @@ services:
   - type: web
     name: anjurxbot
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: (which npm >/dev/null 2>&1 && npm install && npm run build || true) && pip install -r requirements.txt
     startCommand: python main.py
     healthCheckPath: /health
     plan: free

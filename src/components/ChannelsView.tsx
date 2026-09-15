@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   Loader2,
   Check,
+  Globe,
 } from 'lucide-react';
 
 interface ChannelsViewProps {
@@ -31,11 +32,12 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
   const [selectedChannel, setSelectedChannel] = useState<ChannelItem | null>(null);
 
   // Detail Modal Sub-Tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'limits' | 'schedule' | 'permissions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'limits' | 'schedule' | 'permissions' | 'language'>('overview');
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [dailyLimit, setDailyLimit] = useState<number>(3);
   const [scheduleMode, setScheduleMode] = useState<string>('instant');
   const [scheduleTimes, setScheduleTimes] = useState<string[]>(['09:00', '14:00', '19:00']);
+  const [postLanguage, setPostLanguage] = useState<string>('uz');
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
     setDailyLimit(channel.daily_limit);
     setScheduleMode(channel.schedule_mode);
     setScheduleTimes([...channel.schedule_times]);
+    setPostLanguage(channel.post_language || 'uz');
     setActiveTab('overview');
     setSuccessMessage(null);
     setErrorMessage(null);
@@ -158,6 +161,31 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
       onRefresh();
     } catch (err: any) {
       setErrorMessage(err.message || 'Jadvalni saqlab bo‘lmadi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveLanguage = async (newLang?: string) => {
+    if (!selectedChannel) return;
+    const langToSave = newLang || postLanguage;
+    setSaving(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const res = await api.updateChannel(selectedChannel.chat_id, {
+        post_language: langToSave,
+      });
+      setSelectedChannel(res.channel);
+      setPostLanguage(res.channel.post_language || langToSave);
+      setChannels((prev) =>
+        prev.map((c) => (c.chat_id === selectedChannel.chat_id ? res.channel : c))
+      );
+      setSuccessMessage('Kanal post tili muvaffaqiyatli saqlandi');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Til sozlamasini saqlab bo‘lmadi');
     } finally {
       setSaving(false);
     }
@@ -310,6 +338,18 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                       >
                         {channel.plan}
                       </span>
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-blue-500/10 text-blue-300 border-blue-500/30 flex items-center gap-1">
+                        <Globe className="w-2.5 h-2.5" />
+                        <span>
+                          {channel.post_language === 'ru'
+                            ? '🇷🇺 RU'
+                            : channel.post_language === 'en'
+                            ? '🇬🇧 EN'
+                            : channel.post_language === 'auto'
+                            ? '🔄 Auto'
+                            : '🇺🇿 UZ'}
+                        </span>
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-3 text-[11px] text-zinc-500 mt-1 font-mono">
@@ -417,6 +457,7 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                 [
                   { id: 'overview', label: 'Umumiy' },
                   { id: 'sources', label: `Manbalar (${selectedSources.length})` },
+                  { id: 'language', label: 'Post Tili' },
                   { id: 'limits', label: 'Limit' },
                   { id: 'schedule', label: 'Jadval' },
                   { id: 'permissions', label: 'Huquqlar' },
@@ -478,6 +519,21 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                       <span className="text-zinc-500 block mb-1">Yetkazish rejimi</span>
                       <span className="font-semibold text-white capitalize">
                         {selectedChannel.schedule_mode}
+                      </span>
+                    </div>
+                    <div className="bg-zinc-900 p-3 rounded-xl">
+                      <span className="text-zinc-500 block mb-1">Post Tili</span>
+                      <span className="font-semibold text-blue-300 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>
+                          {selectedChannel.post_language === 'ru'
+                            ? '🇷🇺 Русский'
+                            : selectedChannel.post_language === 'en'
+                            ? '🇬🇧 English'
+                            : selectedChannel.post_language === 'auto'
+                            ? '🔄 Avtomatik'
+                            : '🇺🇿 O‘zbekcha'}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -610,6 +666,96 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                   >
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                     <span>Manbalarni Saqlash</span>
+                  </button>
+                </div>
+              )}
+
+              {/* POST LANGUAGE TAB */}
+              {activeTab === 'language' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-zinc-300 font-semibold mb-1 text-xs">
+                      Telegram Kanal Post Tili
+                    </label>
+                    <p className="text-[11px] text-zinc-400 mb-3">
+                      Ushbu kanalga yuboriladigan barcha yangiliklar tanlangan tilga Gemini AI orqali avtomatik tarjima qilinadi.
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {[
+                        {
+                          id: 'uz',
+                          name: '🇺🇿 O‘zbekcha',
+                          desc: 'O‘zbek tilidagi sarlavha va qisqacha mazmun (standart)',
+                        },
+                        {
+                          id: 'ru',
+                          name: '🇷🇺 Русский',
+                          desc: 'Русский перевод заголовка и краткого описания',
+                        },
+                        {
+                          id: 'en',
+                          name: '🇬🇧 English',
+                          desc: 'English title and summary translation',
+                        },
+                        {
+                          id: 'auto',
+                          name: '🔄 Avtomatik',
+                          desc: 'Asl tilda qoldirish (tarjima qilinmaydi)',
+                        },
+                      ].map((item) => {
+                        const isSelected = postLanguage === item.id;
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => setPostLanguage(item.id)}
+                            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-emerald-500/10 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/40'
+                                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-xs text-white">
+                                {item.name}
+                              </span>
+                              <div
+                                className={`w-4 h-4 rounded-full flex items-center justify-center border ${
+                                  isSelected
+                                    ? 'bg-emerald-500 border-emerald-500 text-zinc-950'
+                                    : 'border-zinc-700'
+                                }`}
+                              >
+                                {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-zinc-400 leading-snug">
+                              {item.desc}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-zinc-900/70 border border-zinc-800/80 rounded-xl space-y-1">
+                    <span className="text-[11px] font-semibold text-zinc-300 block">
+                      ⚡ Qanday ishlaydi?
+                    </span>
+                    <p className="text-[10px] text-zinc-400 leading-relaxed">
+                      1. Xorijiy (NPR, Guardian, Al Jazeera va h.k.) manbalardan yangilik kelganda Gemini AI orqali real vaqt rejimida tarjima qilinadi.<br />
+                      2. API sarfini tejash uchun tarjimalar keshlanadi.<br />
+                      3. Har bir kanal alohida tilga sozlangan bo‘lishi mumkin.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => handleSaveLanguage(postLanguage)}
+                    disabled={saving}
+                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    <span>Tilni Saqlash</span>
                   </button>
                 </div>
               )}

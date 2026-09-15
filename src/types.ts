@@ -23,6 +23,7 @@ export interface ChannelItem {
   schedule_mode: 'instant' | 'custom' | string;
   schedule_times: string[];
   selected_sources: string[];
+  post_language?: 'uz' | 'ru' | 'en' | 'auto' | string;
   today_delivered_count: number;
   today_delivered_slots?: string[];
   today_date: string;
