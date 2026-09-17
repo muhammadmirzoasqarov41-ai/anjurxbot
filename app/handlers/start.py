@@ -46,8 +46,38 @@ async def cmd_start(message: Message, state: FSMContext):
     username = user.username if user else None
     first_name = user.first_name if user else ""
 
+    # Check if this user is joining the bot for the first time
+    existing_user = await rss_storage.get_user(user_id) if user_id else None
+    is_new_user = existing_user is None
+
     # Register/update user profile in storage
     await rss_storage.get_or_create_user(user_id=user_id, username=username, first_name=first_name)
+
+    # If new user and not the super admin themselves, send instant notification to Super Admin
+    if is_new_user and user_id and config.super_admin_id and user_id != config.super_admin_id:
+        try:
+            bot = message.bot
+            if bot:
+                all_users = await rss_storage.get_all_users()
+                total_users_count = len(all_users)
+                uname_display = f"@{username}" if username else "Mavjud emas"
+                name_display = first_name or "Noma'lum"
+                admin_notification = (
+                    "🔔 <b>Yangi foydalanuvchi botga qo‘shildi!</b>\n\n"
+                    f"👤 <b>Ism:</b> {name_display}\n"
+                    f"🔹 <b>Username:</b> {uname_display}\n"
+                    f"🆔 <b>Telegram ID:</b> <code>{user_id}</code>\n"
+                    f"📊 <b>Jami foydalanuvchilar:</b> {total_users_count} ta\n\n"
+                    f"⚡ <i>Web Admin panelda ma'lumotlar real-time yangilandi.</i>"
+                )
+                await bot.send_message(
+                    chat_id=config.super_admin_id,
+                    text=admin_notification,
+                    parse_mode="HTML",
+                )
+                logger.info(f"Yangi user ({user_id}) haqida Super Admin ({config.super_admin_id})ga bildirishnoma yuborildi.")
+        except Exception as e:
+            logger.warning(f"Super Adminga yangi user bildirishnomasini yuborishda xatolik: {e}")
 
     keyboard = get_main_menu_keyboard(user_id=user_id)
     await message.answer(

@@ -58,6 +58,68 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 }
 
 // --------------------------------------------------------------------------
+// Real-time Event Broadcaster (SSE) & Super Admin Telegram Notifications
+// --------------------------------------------------------------------------
+const sseClients = new Set<Response>();
+
+function broadcastEvent(type: string, data: any) {
+  const payload = `data: ${JSON.stringify({ type, data, timestamp: new Date().toISOString() })}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(payload);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+async function notifySuperAdminNewUser(user: { user_id: number; username?: string | null; first_name?: string }) {
+  const botToken = process.env.BOT_TOKEN;
+  const uname = user.username ? `@${user.username}` : "Mavjud emas";
+  const name = user.first_name || "Noma'lum";
+  const totalUsers = Object.keys(loadDatabase().users || {}).length;
+  
+  console.log(`[Notification] Super admin ${SUPER_ADMIN_ID} notification triggered for user ${user.user_id} (${name})`);
+  
+  if (!botToken || botToken.includes('YOUR_TELEGRAM_BOT_TOKEN_HERE') || botToken.includes('Placeholder')) {
+    return;
+  }
+
+  const text = (
+    `🔔 <b>Yangi foydalanuvchi botga qo‘shildi!</b>\n\n` +
+    `👤 <b>Ism:</b> ${name}\n` +
+    `🔹 <b>Username:</b> ${uname}\n` +
+    `🆔 <b>Telegram ID:</b> <code>${user.user_id}</code>\n` +
+    `📊 <b>Jami foydalanuvchilar:</b> ${totalUsers} ta\n\n` +
+    `⚡ <i>Web Admin panelda real-time yangilandi.</i>`
+  );
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: SUPER_ADMIN_ID,
+        text,
+        parse_mode: 'HTML',
+      }),
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const errBody = await res.text();
+      console.warn(`[Telegram API Warning] status ${res.status}: ${errBody}`);
+    } else {
+      console.log(`[Telegram Notification Sent] Super Admin (${SUPER_ADMIN_ID}) notified successfully.`);
+    }
+  } catch (err: any) {
+    console.error('Failed to dispatch Telegram message to Super Admin:', err?.message || err);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Firebase Firestore Integration (Optional Cloud persistence)
 // --------------------------------------------------------------------------
 let firestoreDb: Firestore | null = null;
@@ -476,9 +538,421 @@ function saveDatabase(data: UnifiedDatabaseState) {
         }
       })();
     }
+    broadcastEvent('database_changed', {
+      total_users: Object.keys(data.users || {}).length,
+      users: Object.values(data.users || {}),
+      total_channels: Object.keys(data.channels || {}).length,
+    });
   } catch (e: any) {
     console.error('Could not write database:', e.message);
   }
+}
+
+// --------------------------------------------------------------------------
+// Firestore Continuous Bi-Directional Real-Time Synchronization Engine
+// --------------------------------------------------------------------------
+let firestoreSyncInitialized = false;
+
+export async function syncFirestoreToLocal() {
+  const fsDb = getFirestoreDb();
+  if (!fsDb) return;
+
+  try {
+    const data = loadDatabase();
+    const todayStr = getTashkentDateStr();
+
+    // 1. Sync Categories
+    try {
+      const catsSnap = await fsDb.collection('source_categories').get();
+      if (!catsSnap.empty) {
+        catsSnap.forEach((doc) => {
+          const cat = doc.data();
+          data.categories[doc.id] = {
+            id: doc.id,
+            name: cat.name || doc.id,
+            slug: cat.slug || doc.id,
+            description: cat.description || '',
+            icon: cat.icon || 'tag',
+            active: cat.active !== false,
+            sort_order: Number(cat.sort_order || 0),
+            created_at: cat.created_at || new Date().toISOString(),
+            updated_at: cat.updated_at || new Date().toISOString(),
+          };
+        });
+      }
+    } catch {}
+
+    // 2. Sync Sources
+    try {
+      const sourcesSnap = await fsDb.collection('sources').get();
+      if (!sourcesSnap.empty) {
+        sourcesSnap.forEach((doc) => {
+          const s = doc.data();
+          data.sources[doc.id] = {
+            id: doc.id,
+            name: s.name || 'Manba',
+            url: s.url || '',
+            feed_url: s.feed_url || s.url || '',
+            website_url: s.website_url || '',
+            type: s.type || 'rss',
+            category_id: s.category_id || '',
+            category: s.category || 'Yangiliklar',
+            description: s.description || '',
+            language: s.language || 'uz',
+            country: s.country || 'UZ',
+            active: s.active !== false,
+            created_at: s.created_at || new Date().toISOString(),
+            updated_at: s.updated_at || new Date().toISOString(),
+            last_fetch_at: s.last_fetch_at || null,
+            last_success_at: s.last_success_at || null,
+            last_error: s.last_error || null,
+            last_error_at: s.last_error_at || null,
+            error_count: Number(s.error_count || 0),
+            etag: s.etag || null,
+            last_modified: s.last_modified || null,
+            posts_count: Number(s.posts_count || 0),
+          };
+        });
+      }
+    } catch {}
+
+    // 3. Sync Users
+    try {
+      const usersSnap = await fsDb.collection('users').get();
+      if (!usersSnap.empty) {
+        data.users = data.users || {};
+        usersSnap.forEach((doc) => {
+          const u = doc.data();
+          const uid = u.user_id ? String(u.user_id) : doc.id;
+          data.users[uid] = {
+            user_id: parseInt(uid, 10),
+            username: u.username || null,
+            first_name: u.first_name || '',
+            plan: u.plan || 'free',
+            custom_limit: u.custom_limit ? Number(u.custom_limit) : null,
+            created_at: u.created_at || new Date().toISOString(),
+            updated_at: u.updated_at || new Date().toISOString(),
+          };
+        });
+      }
+    } catch {}
+
+    // 4. Sync Channels
+    try {
+      const channelsSnap = await fsDb.collection('channels').get();
+      if (!channelsSnap.empty) {
+        data.channels = data.channels || {};
+        channelsSnap.forEach((doc) => {
+          const c = doc.data();
+          const cid = c.chat_id ? String(c.chat_id) : doc.id;
+          data.channels[cid] = {
+            chat_id: parseInt(cid, 10),
+            title: c.title || `Kanal ${cid}`,
+            username: c.username || null,
+            owner_user_id: parseInt(c.owner_user_id || 0, 10),
+            active: c.active !== false,
+            can_post: c.can_post !== false,
+            daily_limit: Number(c.daily_limit || 3),
+            plan: c.plan || 'free',
+            schedule_mode: c.schedule_mode || 'instant',
+            schedule_times: Array.isArray(c.schedule_times) ? c.schedule_times : ['09:00', '14:00', '19:00'],
+            selected_sources: Array.isArray(c.selected_sources) ? c.selected_sources : [],
+            today_delivered_count: Number(c.today_delivered_count || 0),
+            today_date: c.today_date || todayStr,
+            last_delivered_at: c.last_delivered_at || null,
+            total_delivered_count: Number(c.total_delivered_count || 0),
+            created_at: c.created_at || new Date().toISOString(),
+            updated_at: c.updated_at || new Date().toISOString(),
+          };
+        });
+      }
+    } catch {}
+
+    // 5. Sync Delivered Posts
+    let totalDeliveredDocs = 0;
+    try {
+      const deliveredSnap = await fsDb.collection('delivered_posts').get();
+      totalDeliveredDocs = deliveredSnap.size;
+      if (!deliveredSnap.empty) {
+        const signatures = new Set(data.delivered_signatures || []);
+        const recentList: any[] = [];
+
+        deliveredSnap.forEach((doc) => {
+          const rec = doc.data();
+          signatures.add(doc.id);
+          recentList.push({
+            signature: doc.id,
+            source_id: rec.source_id || rec.feed_id || '',
+            external_post_id: rec.external_post_id || doc.id,
+            channel_id: rec.channel_id || 0,
+            title: rec.title || '',
+            url: rec.url || rec.link || '',
+            delivered_at: rec.delivered_at || rec.published_at || new Date().toISOString(),
+            telegram_message_id: rec.telegram_message_id || null,
+          });
+        });
+
+        data.delivered_signatures = Array.from(signatures);
+        recentList.sort((a, b) => new Date(b.delivered_at).getTime() - new Date(a.delivered_at).getTime());
+        data.recent_posts = recentList.slice(0, 100);
+
+        // Dynamically compute channels delivered counts
+        for (const ch of Object.values(data.channels)) {
+          const chDeliveries = recentList.filter((r) => String(r.channel_id) === String(ch.chat_id));
+          if (chDeliveries.length > 0) {
+            ch.total_delivered_count = Math.max(ch.total_delivered_count || 0, chDeliveries.length);
+            const todayCount = chDeliveries.filter((r) => (r.delivered_at || '').startsWith(todayStr)).length;
+            ch.today_delivered_count = Math.max(ch.today_delivered_count || 0, todayCount);
+            ch.today_date = todayStr;
+          }
+        }
+      }
+    } catch {}
+
+    // 6. Sync Posts (5-day retention pool)
+    try {
+      const postsSnap = await fsDb.collection('posts').get();
+      if (!postsSnap.empty) {
+        data.posts = data.posts || {};
+        postsSnap.forEach((doc) => {
+          const p = doc.data();
+          const pid = p.post_id || doc.id;
+          const isDelivered = p.status === 'delivered' || (data.delivered_signatures && data.delivered_signatures.includes(pid));
+          const isExpired = p.expires_at ? new Date(p.expires_at).getTime() <= Date.now() : false;
+          const status = isDelivered ? 'delivered' : isExpired ? 'expired' : (p.status || 'queued');
+
+          data.posts[pid] = {
+            post_id: pid,
+            source_id: p.source_id || '',
+            source_name: p.source_name || 'Manba',
+            external_post_id: p.external_post_id || pid,
+            title: p.title || 'Yangi post',
+            description: p.description || '',
+            content: p.content || '',
+            url: p.url || '',
+            image_url: p.image_url || null,
+            media_type: p.media_type || null,
+            published_at: p.published_at || null,
+            fetched_at: p.fetched_at || new Date().toISOString(),
+            expires_at: p.expires_at || new Date(Date.now() + 5 * 86400 * 1000).toISOString(),
+            status,
+            assigned_channel_id: p.assigned_channel_id || null,
+            delivered_at: p.delivered_at || null,
+            attempts: Number(p.attempts || 0),
+            last_error: p.last_error || null,
+          };
+        });
+      }
+    } catch {}
+
+    // 7. Aggregate Total Delivered
+    try {
+      const statsSnap = await fsDb.collection('daily_stats').get();
+      let totalDaily = 0;
+      statsSnap.forEach((d) => {
+        totalDaily += Number(d.data().posts_delivered || 0);
+      });
+      data.posts_delivered = Math.max(totalDeliveredDocs, totalDaily, data.posts_delivered || 0);
+    } catch {}
+
+    // Save locally
+    data.updated_at = new Date().toISOString();
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.error('[Firestore Sync Error]:', err.message);
+  }
+}
+
+export function initFirestoreRealtimeListeners() {
+  const fsDb = getFirestoreDb();
+  if (!fsDb || firestoreSyncInitialized) return;
+  firestoreSyncInitialized = true;
+
+  console.log('[Firestore] Registering real-time listeners for live synchronization...');
+
+  // Live Users Listener
+  fsDb.collection('users').onSnapshot((snap) => {
+    try {
+      const data = loadDatabase();
+      snap.docChanges().forEach((change) => {
+        const u = change.doc.data();
+        const uid = u.user_id ? String(u.user_id) : change.doc.id;
+        if (change.type === 'removed') {
+          delete data.users[uid];
+        } else {
+          data.users[uid] = {
+            user_id: parseInt(uid, 10),
+            username: u.username || null,
+            first_name: u.first_name || '',
+            plan: u.plan || 'free',
+            custom_limit: u.custom_limit ? Number(u.custom_limit) : null,
+            created_at: u.created_at || new Date().toISOString(),
+            updated_at: u.updated_at || new Date().toISOString(),
+          };
+        }
+      });
+      data.updated_at = new Date().toISOString();
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      broadcastEvent('users_updated', {
+        total_users: Object.keys(data.users).length,
+        users: Object.values(data.users),
+        total_channels: Object.keys(data.channels).length,
+      });
+      broadcastEvent('dashboard_updated', {});
+    } catch (e: any) {
+      console.warn('Error in users onSnapshot:', e.message);
+    }
+  });
+
+  // Live Channels Listener
+  fsDb.collection('channels').onSnapshot((snap) => {
+    try {
+      const data = loadDatabase();
+      const todayStr = getTashkentDateStr();
+      snap.docChanges().forEach((change) => {
+        const c = change.doc.data();
+        const cid = c.chat_id ? String(c.chat_id) : change.doc.id;
+        if (change.type === 'removed') {
+          delete data.channels[cid];
+        } else {
+          data.channels[cid] = {
+            chat_id: parseInt(cid, 10),
+            title: c.title || `Kanal ${cid}`,
+            username: c.username || null,
+            owner_user_id: parseInt(c.owner_user_id || 0, 10),
+            active: c.active !== false,
+            can_post: c.can_post !== false,
+            daily_limit: Number(c.daily_limit || 3),
+            plan: c.plan || 'free',
+            schedule_mode: c.schedule_mode || 'instant',
+            schedule_times: Array.isArray(c.schedule_times) ? c.schedule_times : ['09:00', '14:00', '19:00'],
+            selected_sources: Array.isArray(c.selected_sources) ? c.selected_sources : [],
+            today_delivered_count: Number(c.today_delivered_count || 0),
+            today_date: c.today_date || todayStr,
+            last_delivered_at: c.last_delivered_at || null,
+            total_delivered_count: Number(c.total_delivered_count || 0),
+            created_at: c.created_at || new Date().toISOString(),
+            updated_at: c.updated_at || new Date().toISOString(),
+          };
+        }
+      });
+      data.updated_at = new Date().toISOString();
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      broadcastEvent('channels_updated', {
+        total_channels: Object.keys(data.channels).length,
+        channels: Object.values(data.channels),
+      });
+      broadcastEvent('dashboard_updated', {});
+    } catch (e: any) {
+      console.warn('Error in channels onSnapshot:', e.message);
+    }
+  });
+
+  // Live Posts Listener
+  fsDb.collection('posts').onSnapshot((snap) => {
+    try {
+      const data = loadDatabase();
+      snap.docChanges().forEach((change) => {
+        const p = change.doc.data();
+        const pid = p.post_id || change.doc.id;
+        if (change.type === 'removed') {
+          delete data.posts[pid];
+        } else {
+          const isDelivered = p.status === 'delivered' || (data.delivered_signatures && data.delivered_signatures.includes(pid));
+          const isExpired = p.expires_at ? new Date(p.expires_at).getTime() <= Date.now() : false;
+          data.posts[pid] = {
+            post_id: pid,
+            source_id: p.source_id || '',
+            source_name: p.source_name || 'Manba',
+            external_post_id: p.external_post_id || pid,
+            title: p.title || 'Yangi post',
+            description: p.description || '',
+            content: p.content || '',
+            url: p.url || '',
+            image_url: p.image_url || null,
+            media_type: p.media_type || null,
+            published_at: p.published_at || null,
+            fetched_at: p.fetched_at || new Date().toISOString(),
+            expires_at: p.expires_at || new Date(Date.now() + 5 * 86400 * 1000).toISOString(),
+            status: isDelivered ? 'delivered' : isExpired ? 'expired' : (p.status || 'queued'),
+            assigned_channel_id: p.assigned_channel_id || null,
+            delivered_at: p.delivered_at || null,
+            attempts: Number(p.attempts || 0),
+            last_error: p.last_error || null,
+          };
+        }
+      });
+      data.updated_at = new Date().toISOString();
+      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      broadcastEvent('posts_updated', {
+        total_posts: Object.keys(data.posts).length,
+      });
+      broadcastEvent('dashboard_updated', {});
+    } catch (e: any) {
+      console.warn('Error in posts onSnapshot:', e.message);
+    }
+  });
+
+  // Live Delivered Posts Listener
+  fsDb.collection('delivered_posts').onSnapshot((snap) => {
+    try {
+      const data = loadDatabase();
+      let added = 0;
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          added++;
+          const rec = change.doc.data();
+          if (!data.delivered_signatures.includes(change.doc.id)) {
+            data.delivered_signatures.push(change.doc.id);
+          }
+          data.recent_posts.unshift({
+            signature: change.doc.id,
+            source_id: rec.source_id || rec.feed_id || '',
+            external_post_id: rec.external_post_id || change.doc.id,
+            channel_id: rec.channel_id || 0,
+            title: rec.title || '',
+            url: rec.url || rec.link || '',
+            delivered_at: rec.delivered_at || rec.published_at || new Date().toISOString(),
+            telegram_message_id: rec.telegram_message_id || null,
+          });
+        }
+      });
+      if (added > 0) {
+        data.posts_delivered = Math.max(data.posts_delivered + added, data.delivered_signatures.length);
+        data.recent_posts = data.recent_posts.slice(0, 100);
+        data.updated_at = new Date().toISOString();
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+        broadcastEvent('delivery_occurred', {
+          posts_delivered: data.posts_delivered,
+          recent: data.recent_posts.slice(0, 10),
+        });
+        broadcastEvent('dashboard_updated', {});
+      }
+    } catch (e: any) {
+      console.warn('Error in delivered_posts onSnapshot:', e.message);
+    }
+  });
+
+  // Live Daily Stats Listener
+  fsDb.collection('daily_stats').onSnapshot((snap) => {
+    try {
+      const data = loadDatabase();
+      let totalDaily = 0;
+      snap.forEach((d) => {
+        totalDaily += Number(d.data().posts_delivered || 0);
+      });
+      if (totalDaily > 0) {
+        data.posts_delivered = Math.max(data.posts_delivered, totalDaily);
+        data.updated_at = new Date().toISOString();
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+        broadcastEvent('dashboard_updated', {});
+      }
+    } catch (e: any) {
+      console.warn('Error in daily_stats onSnapshot:', e.message);
+    }
+  });
 }
 
 // --------------------------------------------------------------------------
@@ -761,12 +1235,21 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
   const activeSources = sourcesList.filter((s) => s.active).length;
   const errorSources = sourcesList.filter((s) => s.error_count > 0).length;
 
-  const queuedPosts = postsList.filter((p) => p.status === 'queued').length;
-  const deliveredPosts = postsList.filter((p) => p.status === 'delivered').length;
-  const expiredPosts = postsList.filter((p) => p.status === 'expired').length;
-
   const todayStr = getTashkentDateStr();
-  const deliveredToday = channelsList.reduce((acc, c) => (c.today_date === todayStr ? acc + c.today_delivered_count : acc), 0);
+  const now = Date.now();
+
+  const queuedPosts = postsList.filter((p) => p.status === 'queued' && (!p.expires_at || new Date(p.expires_at).getTime() > now)).length;
+  const deliveredPosts = postsList.filter((p) => p.status === 'delivered' || (db.delivered_signatures && db.delivered_signatures.includes(p.post_id))).length;
+  const expiredPosts = postsList.filter((p) => p.status === 'expired' || (p.expires_at && new Date(p.expires_at).getTime() <= now && p.status !== 'delivered')).length;
+
+  const deliveredTodayFromChannels = channelsList.reduce((acc, c) => (c.today_date === todayStr ? acc + (c.today_delivered_count || 0) : acc), 0);
+  const deliveredTodayFromRecent = (db.recent_posts || []).filter((p: any) => (p.delivered_at || '').startsWith(todayStr)).length;
+  const deliveredToday = Math.max(deliveredTodayFromChannels, deliveredTodayFromRecent);
+  const totalDelivered = Math.max(
+    Number(db.posts_delivered || 0),
+    (db.delivered_signatures || []).length,
+    channelsList.reduce((acc, c) => acc + (c.total_delivered_count || 0), 0)
+  );
 
   // Generate dynamic alerts
   const alerts: any[] = [];
@@ -805,7 +1288,7 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
       total_users: usersList.length,
       contract_users: usersList.filter((u) => u.plan === 'contract').length,
       posts_delivered_today: deliveredToday,
-      total_delivered: Number(db.posts_delivered || 0),
+      total_delivered: totalDelivered,
       pool_queued: queuedPosts,
       pool_delivered: deliveredPosts,
       pool_expired: expiredPosts,
@@ -1099,6 +1582,45 @@ app.get('/api/users', authMiddleware, (req: Request, res: Response) => {
     status: 'ok',
     total: enriched.length,
     users: enriched,
+  });
+});
+
+app.post('/api/users', authMiddleware, async (req: Request, res: Response) => {
+  const { user_id, username, first_name, plan, custom_limit } = req.body;
+  const uid = parseInt(String(user_id), 10);
+  if (!uid || isNaN(uid)) {
+    return res.status(400).json({ error: 'Telegram User ID raqam bo‘lishi shart' });
+  }
+
+  const db = loadDatabase();
+  const isNew = !db.users[uid.toString()];
+  
+  const user: UserRecord = {
+    user_id: uid,
+    username: username ? String(username).replace(/^@/, '').trim() : null,
+    first_name: first_name ? String(first_name).trim() : 'Foydalanuvchi',
+    plan: plan === 'contract' ? 'contract' : 'free',
+    custom_limit: plan === 'contract' ? Math.max(1, parseInt(custom_limit || '10', 10)) : null,
+    created_at: db.users[uid.toString()]?.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  db.users[uid.toString()] = user;
+  saveDatabase(db);
+
+  if (isNew) {
+    addSystemLog('INFO', 'User', `Yangi foydalanuvchi tizimga qo‘shildi: ID=${uid}, Ism=${user.first_name}`);
+    notifySuperAdminNewUser(user).catch(() => {});
+    broadcastEvent('user_created', { user, total_users: Object.keys(db.users).length });
+  } else {
+    broadcastEvent('user_updated', { user, total_users: Object.keys(db.users).length });
+  }
+
+  return res.json({
+    status: 'ok',
+    message: isNew ? 'Yangi foydalanuvchi muvaffaqiyatli qo‘shildi' : 'Foydalanuvchi ma’lumotlari yangilandi',
+    user,
+    is_new: isNew,
   });
 });
 
@@ -1709,12 +2231,25 @@ app.delete('/api/sources/:id', authMiddleware, async (req: Request, res: Respons
 
 app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
   const db = loadDatabase();
-  let list = Object.values(db.posts);
+  const now = Date.now();
+  const deliveredSet = new Set(db.delivered_signatures || []);
+
+  const allPosts = Object.values(db.posts).map((p) => {
+    const isDelivered = p.status === 'delivered' || deliveredSet.has(p.post_id);
+    const isExpired = p.expires_at ? new Date(p.expires_at).getTime() <= now : false;
+    const effectiveStatus = isDelivered ? 'delivered' : isExpired ? 'expired' : (p.status || 'queued');
+    return {
+      ...p,
+      status: effectiveStatus,
+    };
+  });
 
   const status = String(req.query.status || 'all');
   const search = String(req.query.search || '').trim().toLowerCase();
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
   const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit || '20'), 10)));
+
+  let list = allPosts;
 
   if (status !== 'all') {
     list = list.filter((p) => p.status === status);
@@ -1723,20 +2258,19 @@ app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
   if (search) {
     list = list.filter(
       (p) =>
-        p.title.toLowerCase().includes(search) ||
-        p.source_name.toLowerCase().includes(search) ||
-        p.url.toLowerCase().includes(search)
+        (p.title || '').toLowerCase().includes(search) ||
+        (p.source_name || '').toLowerCase().includes(search) ||
+        (p.url || '').toLowerCase().includes(search)
     );
   }
 
   // Sort newest first
-  list.sort((a, b) => new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime());
+  list.sort((a, b) => new Date(b.fetched_at || 0).getTime() - new Date(a.fetched_at || 0).getTime());
 
   const total = list.length;
   const startIndex = (page - 1) * limit;
   const pagedPosts = list.slice(startIndex, startIndex + limit);
 
-  const allPosts = Object.values(db.posts);
   const counts = {
     all: allPosts.length,
     queued: allPosts.filter((p) => p.status === 'queued').length,
@@ -1891,21 +2425,91 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // --------------------------------------------------------------------------
+// Real-time Event Stream (SSE)
+// --------------------------------------------------------------------------
+app.get('/api/events', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof (res as any).flushHeaders === 'function') {
+    (res as any).flushHeaders();
+  }
+
+  const db = loadDatabase();
+  const usersList = Object.values(db.users || {});
+  res.write(`data: ${JSON.stringify({
+    type: 'connected',
+    total_users: usersList.length,
+    users: usersList,
+    total_channels: Object.keys(db.channels || {}).length,
+    timestamp: new Date().toISOString()
+  })}\n\n`);
+
+  sseClients.add(res);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
+});
+
+// Periodic heartbeat and database file watcher for real-time synchronization
+let lastDbMtime = 0;
+try {
+  if (fs.existsSync(DB_FILE)) {
+    lastDbMtime = fs.statSync(DB_FILE).mtimeMs;
+  }
+} catch {}
+
+setInterval(() => {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const stat = fs.statSync(DB_FILE);
+      if (stat.mtimeMs > lastDbMtime) {
+        lastDbMtime = stat.mtimeMs;
+        const freshDb = loadDatabase();
+        const usersList = Object.values(freshDb.users || {});
+        broadcastEvent('users_updated', {
+          total_users: usersList.length,
+          users: usersList,
+          total_channels: Object.keys(freshDb.channels || {}).length,
+        });
+      }
+    }
+  } catch (e) {}
+}, 2000);
+
+setInterval(() => {
+  broadcastEvent('ping', { time: Date.now() });
+}, 15000);
+
+// --------------------------------------------------------------------------
 // Vite SPA Middleware (Development & Production Fallback)
 // --------------------------------------------------------------------------
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  // 1. Initial Firestore synchronization & Real-time listeners
+  try {
+    await syncFirestoreToLocal();
+    initFirestoreRealtimeListeners();
+    setInterval(syncFirestoreToLocal, 15000);
+  } catch (err: any) {
+    console.warn('[Server] Firestore initial sync skipped or delayed:', err.message);
+  }
+
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDistIndex = fs.existsSync(path.join(distPath, 'index.html'));
+
+  if (process.env.NODE_ENV === 'production' && hasDistIndex) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
 
   app.listen(PORT, HOST, () => {

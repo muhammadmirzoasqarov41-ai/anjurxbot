@@ -947,6 +947,11 @@ class RSSStorage:
     # USER & CONTRACT PLAN OPERATIONS
     # ==========================================================================
 
+    async def get_user(self, user_id: int) -> Optional[UserItem]:
+        await self.init()
+        async with self._lock:
+            return self._users.get(int(user_id))
+
     async def get_or_create_user(
         self,
         user_id: int,

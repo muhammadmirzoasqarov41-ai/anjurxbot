@@ -210,6 +210,13 @@ class ApiService {
     return this.request(`/api/users/${userId}`);
   }
 
+  async createUser(data: { user_id: number; username?: string; first_name?: string; plan?: 'free' | 'contract'; custom_limit?: number }): Promise<{ user: UserItem; message: string; is_new: boolean }> {
+    return this.request('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async updateUserContract(userId: number, plan: 'contract' | 'free', customLimit?: number): Promise<{ user: UserItem; channels_updated: number; message: string }> {
     return this.request(`/api/users/${userId}/contract`, {
       method: 'PATCH',

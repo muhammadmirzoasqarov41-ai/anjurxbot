@@ -43,9 +43,43 @@ export default function App() {
 
   useEffect(() => {
     fetchDashboardData();
-    // Periodic 20s polling for live dashboard metrics
-    const interval = setInterval(fetchDashboardData, 20000);
-    return () => clearInterval(interval);
+
+    // Fast 5s polling for dashboard metrics
+    const interval = setInterval(fetchDashboardData, 5000);
+
+    // Also listen to real-time server SSE events
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/events');
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (
+            payload.type === 'connected' ||
+            payload.type === 'users_updated' ||
+            payload.type === 'user_created' ||
+            payload.type === 'channels_updated' ||
+            payload.type === 'posts_updated' ||
+            payload.type === 'delivery_occurred' ||
+            payload.type === 'dashboard_updated' ||
+            payload.type === 'database_changed'
+          ) {
+            fetchDashboardData();
+          }
+        } catch {
+          // ignore
+        }
+      };
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
   }, []);
 
   const handleSelectTab = (tab: NavTab) => {
