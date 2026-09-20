@@ -27,11 +27,12 @@ from app.config import config
 from app.services.permission_service import is_super_admin
 from app.services.rss_storage import rss_storage
 from app.services.feed_parser import escape_tg_html
-from app.states.rss import ConnectChannelState, SetScheduleTimesState
+from app.states.rss import ConnectChannelState, SetScheduleTimesState, ChannelFooterState
 from app.keyboards.rss import (
     get_main_menu_keyboard,
     get_channels_list_keyboard,
     get_channel_detail_keyboard,
+    get_channel_footer_keyboard,
     get_channel_language_keyboard,
     get_channel_sources_keyboard,
     get_channel_categories_keyboard,
@@ -661,9 +662,10 @@ async def cb_view_channel(callback: CallbackQuery, bot: Bot):
     lang_code = getattr(channel, "post_language", "uz") or "uz"
     lang_labels = {
         "uz": "🇺🇿 O‘zbekcha",
+        "uz_cyrl": "🇺🇿 O‘zbekcha — Kirill",
         "ru": "🇷🇺 Русский",
         "en": "🇬🇧 English",
-        "auto": "🔄 Avtomatik (Asl tilda)",
+        "auto": "🔄 Asl til",
     }
     lang_str = lang_labels.get(lang_code, "🇺🇿 O‘zbekcha")
 
@@ -1251,9 +1253,10 @@ async def cb_channel_language(callback: CallbackQuery, bot: Bot):
         f"🌐 <b>Post tili sozlamasi — {escape_tg_html(channel.title)}</b>\n\n"
         "Ushbu kanalga yuboriladigan barcha yangiliklar qaysi tilda chiqishini tanlang:\n\n"
         "• <b>🇺🇿 O‘zbekcha</b> — barcha xabarlar o‘zbek tiliga tarjima qilinadi (standart)\n"
+        "• <b>🇺🇿 O‘zbekcha — Kirill</b> — barcha xabarlar o‘zbek kirill yozuviga tarjima qilinadi\n"
         "• <b>🇷🇺 Русский</b> — barcha xabarlar rus tiliga tarjima qilinadi\n"
         "• <b>🇬🇧 English</b> — barcha xabarlar ingliz tiliga tarjima qilinadi\n"
-        "• <b>🔄 Avtomatik</b> — manbaning asl tilida qoldiriladi\n\n"
+        "• <b>🔄 Asl til</b> — manbaning asl tilida qoldiriladi\n\n"
         "<i>Tarjimalar Gemini AI orqali real vaqtda amalga oshiriladi.</i>"
     )
     kb = get_channel_language_keyboard(chat_id, current_lang)
@@ -1273,7 +1276,7 @@ async def cb_set_channel_language(callback: CallbackQuery, bot: Bot):
     chat_id = int(parts[1])
     lang = parts[2]
 
-    if lang not in ("uz", "ru", "en", "auto"):
+    if lang not in ("uz", "uz_cyrl", "ru", "en", "auto"):
         await callback.answer("Noto‘g‘ri til kodi.", show_alert=True)
         return
 
@@ -1291,9 +1294,10 @@ async def cb_set_channel_language(callback: CallbackQuery, bot: Bot):
 
     lang_labels = {
         "uz": "🇺🇿 O‘zbekcha",
+        "uz_cyrl": "🇺🇿 O‘zbekcha — Kirill",
         "ru": "🇷🇺 Русский",
         "en": "🇬🇧 English",
-        "auto": "🔄 Avtomatik (Asl tilda)",
+        "auto": "🔄 Asl til",
     }
     await callback.answer(f"✅ Til o‘rnatildi: {lang_labels.get(lang, lang)}", show_alert=False)
     await cb_view_channel(callback, bot)
@@ -1336,3 +1340,201 @@ async def cb_disconnect_do(callback: CallbackQuery, bot: Bot):
         await cb_my_channels(callback, bot, None)
     else:
         await callback.answer("❌ Kanal uzib bo‘lmadi.", show_alert=True)
+
+
+# ==============================================================================
+# 11. PREMIUM KONTENT & POST OXIRI (FOOTER) BOSHQARUVI
+# ==============================================================================
+
+@router.callback_query(F.data.startswith("ch_toggle_premium:"))
+async def cb_toggle_premium(callback: CallbackQuery, bot: Bot):
+    """Toggles premium_enabled for an eligible destination channel."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    chat_id = int(callback.data.split(":")[1])
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    if not getattr(channel, "is_premium_eligible", False):
+        await callback.answer("⛔ Ushbu kanal uchun Premium huquqi berilmagan.", show_alert=True)
+        return
+
+    new_val = not getattr(channel, "premium_enabled", False)
+    channel.premium_enabled = new_val
+    await rss_storage.save_channel(channel)
+
+    msg = "⭐ Premium kontent yoqildi!" if new_val else "⭐ Premium kontent o‘chirildi."
+    await callback.answer(msg, show_alert=False)
+    await cb_view_channel(callback, bot)
+
+
+@router.callback_query(F.data.startswith("ch_footer:"))
+async def cb_channel_footer_menu(callback: CallbackQuery, bot: Bot):
+    """Opens Post Footer configuration menu for channel."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    chat_id = int(callback.data.split(":")[1])
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    ftype = getattr(channel, "footer_type", "none")
+    ftext = getattr(channel, "footer_text", "") or "—"
+    furl = getattr(channel, "footer_url", "") or "—"
+
+    text = (
+        f"✍️ <b>Post oxiri (Footer) sozlamalari</b>\n\n"
+        f"📢 <b>Kanal:</b> {escape_tg_html(channel.title)}\n"
+        f"• <b>Turi:</b> {ftype}\n"
+        f"• <b>Matn:</b> {escape_tg_html(ftext)}\n"
+        f"• <b>Havola:</b> {furl}\n\n"
+        "Postlar kanalingizga yuborilganda oxiriga avtomatik qo‘shiladigan footer turini tanlang:\n"
+        "• <b>Oddiy matn:</b> Masalan, <i>@kanalingiz obuna bo‘ling</i>\n"
+        "• <b>Matnli havola:</b> Masalan, <i>Batafsil ma'lumot saytimizda</i> (havola bilan)\n"
+        "• <b>Inline tugma:</b> Post ostida bosiladigan tugma"
+    )
+    kb = get_channel_footer_keyboard(channel)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ch_set_footer:"))
+async def cb_set_channel_footer(callback: CallbackQuery, bot: Bot, state: FSMContext):
+    """Handles footer type selection."""
+    user_id = callback.from_user.id if callback.from_user else 0
+    parts = callback.data.split(":")
+    chat_id = int(parts[1])
+    ftype = parts[2]
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel or (channel.owner_user_id != user_id and not is_super_admin(user_id)):
+        await callback.answer("⛔ Ruxsat berilmagan.", show_alert=True)
+        return
+
+    if ftype == "none":
+        channel.footer_type = "none"
+        channel.footer_text = None
+        channel.footer_url = None
+        await rss_storage.save_channel(channel)
+        await callback.answer("✅ Footer o‘chirildi.", show_alert=False)
+        await cb_channel_footer_menu(callback, bot)
+        return
+
+    # User needs to provide text/link
+    await state.set_state(ChannelFooterState.waiting_for_text)
+    await state.update_data(footer_chat_id=chat_id, footer_type=ftype)
+
+    if ftype == "text":
+        prompt = (
+            "✍️ <b>Oddiy matnli footerni kiriting:</b>\n\n"
+            "Masalan:\n"
+            "<code>Bizga obuna bo‘ling: @kanalingiz</code>"
+        )
+    elif ftype == "link":
+        prompt = (
+            "✍️ <b>Havola uchun ko‘rinadigan matnni kiriting:</b>\n\n"
+            "Masalan:\n"
+            "<code>Rasmiy kanalimiz</code>"
+        )
+    else:  # button
+        prompt = (
+            "🔘 <b>Tugma matnini kiriting:</b>\n\n"
+            "Masalan:\n"
+            "<code>Obuna bo‘lish 🚀</code>"
+        )
+
+    cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"ch_footer:{chat_id}")
+    ]])
+    await callback.message.edit_text(prompt, reply_markup=cancel_kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.message(StateFilter(ChannelFooterState.waiting_for_text))
+async def msg_footer_text(message: Message, bot: Bot, state: FSMContext):
+    """Receives footer text."""
+    txt = (message.text or "").strip()
+    if not txt:
+        await message.reply("Iltimos, matn kiriting:")
+        return
+
+    data = await state.get_data()
+    chat_id = data.get("footer_chat_id")
+    ftype = data.get("footer_type")
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel:
+        await state.clear()
+        await message.reply("Kanal topilmadi.")
+        return
+
+    if ftype == "text":
+        channel.footer_type = "text"
+        channel.footer_text = txt
+        channel.footer_url = None
+        await rss_storage.save_channel(channel)
+        await state.clear()
+        await message.reply(
+            f"✅ <b>Footer saqlandi!</b>\n\nMatn: <code>{escape_tg_html(txt)}</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{chat_id}")
+            ]]),
+            parse_mode="HTML",
+        )
+    else:
+        # Needs URL next
+        await state.update_data(footer_text=txt)
+        await state.set_state(ChannelFooterState.waiting_for_url)
+        cancel_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❌ Bekor qilish", callback_data=f"ch_footer:{chat_id}")
+        ]])
+        await message.reply(
+            "🔗 <b>Endi havolani (URL) kiriting:</b>\n\n"
+            "Masalan: <code>https://t.me/kanalingiz</code>",
+            reply_markup=cancel_kb,
+            parse_mode="HTML",
+        )
+
+
+@router.message(StateFilter(ChannelFooterState.waiting_for_url))
+async def msg_footer_url(message: Message, bot: Bot, state: FSMContext):
+    """Receives footer URL."""
+    url = (message.text or "").strip()
+    if not url.startswith("http://") and not url.startswith("https://") and not url.startswith("tg://"):
+        await message.reply("⚠️ Havola http://, https:// yoki tg:// bilan boshlanishi kerak. Qaytadan kiriting:")
+        return
+
+    data = await state.get_data()
+    chat_id = data.get("footer_chat_id")
+    ftype = data.get("footer_type")
+    ftext = data.get("footer_text")
+
+    channel = await rss_storage.get_channel(chat_id)
+    if not channel:
+        await state.clear()
+        await message.reply("Kanal topilmadi.")
+        return
+
+    channel.footer_type = ftype
+    channel.footer_text = ftext
+    channel.footer_url = url
+    await rss_storage.save_channel(channel)
+    await state.clear()
+
+    await message.reply(
+        f"✅ <b>Footer muvaffaqiyatli saqlandi!</b>\n\n"
+        f"• <b>Turi:</b> {ftype}\n"
+        f"• <b>Matn:</b> <code>{escape_tg_html(ftext)}</code>\n"
+        f"• <b>Havola:</b> {url}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{chat_id}")
+        ]]),
+        parse_mode="HTML",
+    )
+

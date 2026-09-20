@@ -10,6 +10,7 @@ from aiogram import Bot
 
 from app.services.rss_storage import rss_storage
 from app.services.distribution_service import distribution_service
+from app.services.firebase import firebase_service
 
 logger = logging.getLogger("anjurxbot.gardener")
 
@@ -54,6 +55,11 @@ class Gardener:
                 # 2. Distribute queued posts to eligible channels fairly
                 if self._bot:
                     await distribution_service.distribute_queued_posts(self._bot)
+                    await distribution_service.distribute_premium_posts(self._bot)
+
+                # 3. Resilient recovery queue flush (processes small batch if recovering/healthy)
+                if firebase_service.is_initialized():
+                    await firebase_service.flush_recovery_queue(batch_size=20)
 
             except asyncio.CancelledError:
                 break

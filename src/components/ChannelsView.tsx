@@ -17,6 +17,8 @@ import {
   Loader2,
   Check,
   Globe,
+  Sparkles,
+  Link as LinkIcon,
 } from 'lucide-react';
 
 interface ChannelsViewProps {
@@ -32,12 +34,16 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
   const [selectedChannel, setSelectedChannel] = useState<ChannelItem | null>(null);
 
   // Detail Modal Sub-Tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'limits' | 'schedule' | 'permissions' | 'language'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sources' | 'limits' | 'schedule' | 'permissions' | 'language' | 'footer' | 'premium'>('overview');
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [dailyLimit, setDailyLimit] = useState<number>(3);
   const [scheduleMode, setScheduleMode] = useState<string>('instant');
   const [scheduleTimes, setScheduleTimes] = useState<string[]>(['09:00', '14:00', '19:00']);
   const [postLanguage, setPostLanguage] = useState<string>('uz');
+  const [footerType, setFooterType] = useState<string>('none');
+  const [footerText, setFooterText] = useState<string>('');
+  const [footerUrl, setFooterUrl] = useState<string>('');
+  const [isPremiumEligible, setIsPremiumEligible] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -75,6 +81,10 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
     setScheduleMode(channel.schedule_mode);
     setScheduleTimes([...channel.schedule_times]);
     setPostLanguage(channel.post_language || 'uz');
+    setFooterType((channel as any).footer_type || 'none');
+    setFooterText((channel as any).footer_text || '');
+    setFooterUrl((channel as any).footer_url || '');
+    setIsPremiumEligible(Boolean((channel as any).is_premium_eligible));
     setActiveTab('overview');
     setSuccessMessage(null);
     setErrorMessage(null);
@@ -230,6 +240,57 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
     }
   };
 
+  const handleSaveFooter = async () => {
+    if (!selectedChannel) return;
+    setSaving(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const res = await api.updateChannelFooter(selectedChannel.chat_id, {
+        footer_type: footerType,
+        footer_text: footerText.trim() || undefined,
+        footer_url: footerUrl.trim() || undefined,
+      });
+      setSelectedChannel(res.channel);
+      setChannels((prev) =>
+        prev.map((c) => (c.chat_id === selectedChannel.chat_id ? res.channel : c))
+      );
+      setSuccessMessage('Post oxiri (Footer) sozlamalari muvaffaqiyatli saqlandi');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Footerni saqlab bo‘lmadi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTogglePremiumEligibility = async (eligible: boolean) => {
+    if (!selectedChannel) return;
+    setSaving(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const res = await api.updateChannelPremiumEligibility(selectedChannel.chat_id, eligible);
+      setSelectedChannel(res.channel);
+      setIsPremiumEligible(eligible);
+      setChannels((prev) =>
+        prev.map((c) => (c.chat_id === selectedChannel.chat_id ? res.channel : c))
+      );
+      setSuccessMessage(
+        eligible
+          ? 'Kanalga Premium Kontent huquqi berildi! Endi kanal egasi uni yoqishi mumkin.'
+          : 'Premium huquqi bekor qilindi.'
+      );
+      onRefresh();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Premium huquqini o‘zgartirib bo‘lmadi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleSourceSelection = (sourceId: string) => {
     setSelectedSources((prev) =>
       prev.includes(sourceId) ? prev.filter((id) => id !== sourceId) : [...prev, sourceId]
@@ -341,7 +402,9 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-blue-500/10 text-blue-300 border-blue-500/30 flex items-center gap-1">
                         <Globe className="w-2.5 h-2.5" />
                         <span>
-                          {channel.post_language === 'ru'
+                          {channel.post_language === 'uz_cyrl'
+                            ? '🇺🇿 UZ (Kirill)'
+                            : channel.post_language === 'ru'
                             ? '🇷🇺 RU'
                             : channel.post_language === 'en'
                             ? '🇬🇧 EN'
@@ -350,6 +413,12 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                             : '🇺🇿 UZ'}
                         </span>
                       </span>
+                      {Boolean((channel as any).is_premium_eligible) && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-300 border-amber-500/30 flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                          <span>Premium</span>
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3 text-[11px] text-zinc-500 mt-1 font-mono">
@@ -458,6 +527,8 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                   { id: 'overview', label: 'Umumiy' },
                   { id: 'sources', label: `Manbalar (${selectedSources.length})` },
                   { id: 'language', label: 'Post Tili' },
+                  { id: 'footer', label: 'Footer' },
+                  { id: 'premium', label: 'Premium' },
                   { id: 'limits', label: 'Limit' },
                   { id: 'schedule', label: 'Jadval' },
                   { id: 'permissions', label: 'Huquqlar' },
@@ -526,7 +597,9 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                       <span className="font-semibold text-blue-300 flex items-center gap-1.5">
                         <Globe className="w-3.5 h-3.5" />
                         <span>
-                          {selectedChannel.post_language === 'ru'
+                          {selectedChannel.post_language === 'uz_cyrl'
+                            ? '🇺🇿 O‘zbekcha — Kirill'
+                            : selectedChannel.post_language === 'ru'
                             ? '🇷🇺 Русский'
                             : selectedChannel.post_language === 'en'
                             ? '🇬🇧 English'
@@ -534,6 +607,27 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                             ? '🔄 Avtomatik'
                             : '🇺🇿 O‘zbekcha'}
                         </span>
+                      </span>
+                    </div>
+                    <div className="bg-zinc-900 p-3 rounded-xl">
+                      <span className="text-zinc-500 block mb-1">Premium Kontent</span>
+                      <span className={`font-semibold flex items-center gap-1.5 ${
+                        selectedChannel.is_premium_eligible ? 'text-amber-300' : 'text-zinc-500'
+                      }`}>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>
+                          {selectedChannel.is_premium_eligible
+                            ? (selectedChannel.premium_enabled ? 'Yoqilgan (Faol)' : 'Huquq bor (Kutmoqda)')
+                            : 'Huquq berilmagan'}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="bg-zinc-900 p-3 rounded-xl">
+                      <span className="text-zinc-500 block mb-1">Post Footer</span>
+                      <span className="font-semibold text-zinc-300 capitalize">
+                        {selectedChannel.footer_type && selectedChannel.footer_type !== 'none'
+                          ? `${selectedChannel.footer_type} rejimida`
+                          : 'O‘chirilgan'}
                       </span>
                     </div>
                   </div>
@@ -689,6 +783,11 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                           desc: 'O‘zbek tilidagi sarlavha va qisqacha mazmun (standart)',
                         },
                         {
+                          id: 'uz_cyrl',
+                          name: '🇺🇿 O‘zbekcha — Kirill',
+                          desc: 'O‘zbek kirill yozuvidagi sarlavha va qisqacha mazmun',
+                        },
+                        {
                           id: 'ru',
                           name: '🇷🇺 Русский',
                           desc: 'Русский перевод заголовка и краткого описания',
@@ -700,7 +799,7 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                         },
                         {
                           id: 'auto',
-                          name: '🔄 Avtomatik',
+                          name: '🔄 Asl til',
                           desc: 'Asl tilda qoldirish (tarjima qilinmaydi)',
                         },
                       ].map((item) => {
@@ -799,6 +898,127 @@ export const ChannelsView: React.FC<ChannelsViewProps> = ({ onRefresh }) => {
                     {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                     <span>Limitni Saqlash</span>
                   </button>
+                </div>
+              )}
+
+              {/* FOOTER TAB */}
+              {activeTab === 'footer' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-zinc-400 font-medium mb-1.5">
+                      Post Oxiri (Footer) Turi
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { id: 'none', label: '❌ O‘chirilgan', desc: 'Footer qo‘shilmaydi' },
+                        { id: 'text', label: '📝 Oddiy matn', desc: '@kanalingiz obuna bo‘ling' },
+                        { id: 'link', label: '🔗 Matnli havola', desc: 'Batafsil ma’lumot' },
+                        { id: 'button', label: '🔘 Inline tugma', desc: 'Post ostida tugma' },
+                      ].map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setFooterType(f.id)}
+                          className={`p-3 rounded-xl border text-left transition-colors ${
+                            footerType === f.id
+                              ? 'bg-emerald-500/10 border-emerald-500 text-white'
+                              : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                          }`}
+                        >
+                          <span className="font-bold block text-xs">{f.label}</span>
+                          <span className="text-[10px] text-zinc-500">{f.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {footerType !== 'none' && (
+                    <div className="space-y-3 pt-2 border-t border-zinc-800">
+                      <div>
+                        <label className="block text-zinc-400 font-medium mb-1">
+                          {footerType === 'button' ? 'Tugma matni' : 'Footer matni'} *
+                        </label>
+                        <input
+                          type="text"
+                          value={footerText}
+                          onChange={(e) => setFooterText(e.target.value)}
+                          placeholder={footerType === 'button' ? 'Obuna bo‘lish 🚀' : 'Bizning kanal: @kanalingiz'}
+                          className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      {(footerType === 'link' || footerType === 'button') && (
+                        <div>
+                          <label className="block text-zinc-400 font-medium mb-1">
+                            Havola (URL) *
+                          </label>
+                          <input
+                            type="text"
+                            value={footerUrl}
+                            onChange={(e) => setFooterUrl(e.target.value)}
+                            placeholder="https://t.me/kanalingiz"
+                            className="w-full px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500 font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleSaveFooter}
+                    disabled={saving}
+                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    <span>Footerni Saqlash</span>
+                  </button>
+                </div>
+              )}
+
+              {/* PREMIUM TAB */}
+              {activeTab === 'premium' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-semibold text-white text-xs">Premium Kontent Huquqi</h4>
+                        <p className="text-[11px] text-zinc-400 mt-0.5 leading-relaxed">
+                          Markaziy "Postlar" kanalidan keladigan qo‘lda tayyorlangan eksklyuziv postlarni ushbu kanalga yetkazish huquqi.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-zinc-900 p-3.5 rounded-xl border border-zinc-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-white block text-xs">Super Admin Huquqi (Eligibility)</span>
+                        <span className="text-[10px] text-zinc-400">
+                          {isPremiumEligible ? 'Ushbu kanal Premium olish huquqiga ega' : 'Huquq berilmagan'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePremiumEligibility(!isPremiumEligible)}
+                        disabled={saving}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                          isPremiumEligible
+                            ? 'bg-amber-500 text-zinc-950 hover:bg-amber-400'
+                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                        }`}
+                      >
+                        {isPremiumEligible ? '🟢 Huquq Faol' : '⚪ Huquq Berish'}
+                      </button>
+                    </div>
+
+                    <div className="pt-2 border-t border-zinc-800 text-[11px] text-zinc-400">
+                      <span>Kanal egasi holati: </span>
+                      <strong className="text-white">
+                        {Boolean((selectedChannel as any).premium_enabled) ? 'Yoqilgan (ON)' : 'O‘chirilgan (OFF)'}
+                      </strong>
+                    </div>
+                  </div>
                 </div>
               )}
 

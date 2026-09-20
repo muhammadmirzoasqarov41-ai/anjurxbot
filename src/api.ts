@@ -6,11 +6,13 @@ import {
   SourceItem,
   TestFeedResult,
   PostItem,
+  PostsResponse,
   UserItem,
   DistributionData,
   SystemMonitorData,
   LogEntry,
   SettingsConfig,
+  TranslatorStatus,
 } from './types';
 
 const TOKEN_STORAGE_KEY = 'anjurx_admin_token';
@@ -160,11 +162,13 @@ class ApiService {
   }
 
   // --- Channels ---
-  async getChannels(params: { search?: string; status?: string; plan?: string } = {}): Promise<{ total: number; channels: ChannelItem[] }> {
+  async getChannels(params: { search?: string; status?: string; plan?: string; page?: number; limit?: number } = {}): Promise<{ total: number; page?: number; limit?: number; total_pages?: number; channels: ChannelItem[] }> {
     const q = new URLSearchParams();
     if (params.search) q.set('search', params.search);
     if (params.status && params.status !== 'all') q.set('status', params.status);
     if (params.plan && params.plan !== 'all') q.set('plan', params.plan);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
     return this.request(`/api/channels?${q.toString()}`);
   }
 
@@ -199,10 +203,12 @@ class ApiService {
   }
 
   // --- Users ---
-  async getUsers(params: { search?: string; plan?: string } = {}): Promise<{ total: number; users: UserItem[] }> {
+  async getUsers(params: { search?: string; plan?: string; page?: number; limit?: number } = {}): Promise<{ total: number; page?: number; limit?: number; total_pages?: number; users: UserItem[] }> {
     const q = new URLSearchParams();
     if (params.search) q.set('search', params.search);
     if (params.plan && params.plan !== 'all') q.set('plan', params.plan);
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
     return this.request(`/api/users?${q.toString()}`);
   }
 
@@ -311,20 +317,25 @@ class ApiService {
   }
 
   // --- Post Pool ---
-  async getPosts(params: { status?: string; search?: string; page?: number; limit?: number } = {}): Promise<{
-    total: number;
-    page: number;
-    limit: number;
-    total_pages: number;
-    counts: { all: number; queued: number; delivered: number; expired: number };
-    posts: PostItem[];
-  }> {
+  async getPosts(params: { status?: string; search?: string; page?: number; limit?: number } = {}): Promise<PostsResponse> {
     const q = new URLSearchParams();
     if (params.status && params.status !== 'all') q.set('status', params.status);
     if (params.search) q.set('search', params.search);
     if (params.page) q.set('page', params.page.toString());
     if (params.limit) q.set('limit', params.limit.toString());
-    return this.request(`/api/posts?${q.toString()}`);
+    return this.request<PostsResponse>(`/api/posts?${q.toString()}`);
+  }
+
+  async cleanupPostPool(): Promise<{
+    message: string;
+    before_count: number;
+    deleted_count: number;
+    remaining_count: number;
+    pool_max: number;
+  }> {
+    return this.request('/api/posts/cleanup', {
+      method: 'POST',
+    });
   }
 
   // --- Distribution ---
@@ -337,6 +348,11 @@ class ApiService {
     return this.request('/api/system');
   }
 
+  // --- Translator Diagnostics ---
+  async getTranslatorStatus(): Promise<TranslatorStatus> {
+    return this.request('/api/translator/status');
+  }
+
   async getLogs(params: { level?: string; search?: string } = {}): Promise<{ logs: LogEntry[] }> {
     const q = new URLSearchParams();
     if (params.level && params.level !== 'ALL') q.set('level', params.level);
@@ -347,6 +363,42 @@ class ApiService {
   // --- Settings ---
   async getSettings(): Promise<{ config: SettingsConfig }> {
     return this.request('/api/settings');
+  }
+
+  // --- Central Content Channels & Premium Content ---
+  async getCentralChannels(): Promise<{ central_channels: any[] }> {
+    return this.request('/api/central-channels');
+  }
+
+  async addCentralChannel(data: { chat_id: number | string; title: string; username?: string; description?: string }): Promise<any> {
+    return this.request('/api/central-channels', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCentralChannel(chatId: number): Promise<any> {
+    return this.request(`/api/central-channels/${chatId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getPremiumPosts(page = 1, limit = 20): Promise<{ posts: any[]; total: number; page: number; limit: number }> {
+    return this.request(`/api/premium-posts?page=${page}&limit=${limit}`);
+  }
+
+  async updateChannelPremiumEligibility(chatId: number, is_premium_eligible: boolean): Promise<any> {
+    return this.request(`/api/channels/${chatId}/premium-eligibility`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_premium_eligible }),
+    });
+  }
+
+  async updateChannelFooter(chatId: number, data: { footer_type: string; footer_text?: string; footer_url?: string }): Promise<any> {
+    return this.request(`/api/channels/${chatId}/footer`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
   }
 
   // --- OPML Export / Import ---

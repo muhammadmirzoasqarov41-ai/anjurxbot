@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DashboardData } from '../types';
 import {
   Radio,
@@ -14,6 +14,10 @@ import {
   Activity,
   ArrowUpRight,
   ShieldAlert,
+  Database,
+  RefreshCw,
+  Zap,
+  Sparkles,
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -29,6 +33,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onRefresh,
 }) => {
+  const [flushing, setFlushing] = useState(false);
+  const [flushMessage, setFlushMessage] = useState<string | null>(null);
+
+  const handleManualFlush = async () => {
+    setFlushing(true);
+    setFlushMessage(null);
+    try {
+      const res = await fetch('/api/recovery/flush', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('admin_token') || ''}`,
+        },
+      });
+      const json = await res.json();
+      if (res.ok) {
+        setFlushMessage('Firestore aloqasi muvaffaqiyatli tiklandi!');
+        setTimeout(() => {
+          onRefresh();
+          setFlushMessage(null);
+        }, 1500);
+      } else {
+        setFlushMessage(json.error || 'Tiklanish amalga oshmadi');
+      }
+    } catch (err: any) {
+      setFlushMessage(err.message);
+    } finally {
+      setFlushing(false);
+    }
+  };
+
   if (loading && !data) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-zinc-500">
@@ -49,10 +84,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     contract_users: 0,
     posts_delivered_today: 0,
     total_delivered: 0,
+    total_posts: 0,
+    queued_posts: 0,
+    assigned_posts: 0,
+    delivered_posts: 0,
+    failed_posts: 0,
+    expired_posts: 0,
     pool_queued: 0,
     pool_delivered: 0,
     pool_expired: 0,
     pool_total: 0,
+    pool_max: 500,
   };
 
   const pulse = data?.pulse || {
@@ -146,6 +188,60 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Quota Exceeded / Resilient Recovery Banner */}
+      {(data?.firestore_health?.status === 'quota_exceeded' ||
+        data?.firestore_health?.status === 'recovering' ||
+        (data?.firestore_health?.queue && data.firestore_health.queue.total_pending > 0)) && (
+        <div className="bg-amber-950/20 border border-amber-900/60 rounded-2xl p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-900/30 rounded-xl text-amber-400 mt-0.5">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-amber-200">
+                    {data?.firestore_health?.status === 'quota_exceeded'
+                      ? 'Firestore Bepul Kvotasi To‘ldi (Spark Tier)'
+                      : data?.firestore_health?.status === 'recovering'
+                      ? 'Firestore Qayta Tiklanmoqda'
+                      : 'Lokal SQLite Navbatida Ma’lumotlar Mavjud'}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-900/50 text-amber-300 border border-amber-800/60">
+                    Zero Data Loss Faol
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-300/80 mt-1 leading-relaxed">
+                  {data?.firestore_health?.message ||
+                    'Real ma’lumotlar yo‘qotilmagan. Barcha yangi postlar, kanallar va foydalanuvchilar SQLite navbatida xavfsiz buferlanmoqda. Bot va tarqatish jarayoni uzluksiz ishlamoqda.'}
+                </p>
+                <div className="flex items-center gap-3 mt-2 text-[11px] text-zinc-400 font-mono">
+                  <span>Navbatda: <strong className="text-amber-200">{data?.firestore_health?.queue?.total_pending || 0}</strong> ta amal</span>
+                  {data?.firestore_health?.diagnostics?.next_health_check_at && (
+                    <span>Keyingi tekshiruv: <strong className="text-zinc-300">{formatTimeAgo(data.firestore_health.diagnostics.next_health_check_at)}</strong></span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              <button
+                onClick={handleManualFlush}
+                disabled={flushing}
+                className="px-3 py-1.5 bg-amber-900/40 hover:bg-amber-900/70 border border-amber-800 text-xs font-medium text-amber-200 rounded-xl flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${flushing ? 'animate-spin' : ''}`} />
+                <span>{flushing ? 'Tekshirilmoqda...' : 'Qayta Tekshirish'}</span>
+              </button>
+            </div>
+          </div>
+          {flushMessage && (
+            <div className="mt-2 text-xs text-amber-300 bg-amber-900/30 px-3 py-1.5 rounded-lg">
+              {flushMessage}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 2. Critical Alerts Banner if any */}
       {data?.alerts && data.alerts.length > 0 && (
@@ -242,9 +338,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span className="text-2xl font-bold text-white tracking-tight">
               {metrics.pool_queued}
             </span>
-            <span className="text-xs text-zinc-500">/ {metrics.pool_total} jami</span>
+            <span className="text-xs text-zinc-500">/ {metrics.pool_total} post (max {metrics.pool_max || 500})</span>
           </div>
-          <p className="text-[11px] text-zinc-400 mt-1">5 kunlik retention hovuzi</p>
+          <p className="text-[11px] text-zinc-400 mt-1">Hovuz chegarasi 500 ta post</p>
         </div>
 
         {/* RSS Sources */}
@@ -327,6 +423,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         >
           <Radio className="w-3.5 h-3.5 text-amber-400" />
           <span>Kanallarni Boshqarish</span>
+        </button>
+        <button
+          onClick={() => onNavigate('premium')}
+          className="px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl text-xs font-medium text-amber-300 flex items-center gap-1.5 shrink-0 transition-colors"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span>Premium Kontent Pool</span>
         </button>
       </div>
 

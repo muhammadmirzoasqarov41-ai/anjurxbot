@@ -40,6 +40,12 @@ class Config:
     rate_limit_default: float = field(default_factory=lambda: float(os.getenv("RATE_LIMIT_DEFAULT", "1.0")))
     database_path: str = field(default_factory=lambda: os.getenv("DATABASE_PATH", "./data/rssbot.json").strip())
 
+    # Gemini AI Translation Configuration
+    gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", "").strip())
+    gemini_translation_model: str = field(
+        default_factory=lambda: os.getenv("GEMINI_TRANSLATION_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
+    )
+
     def __post_init__(self):
         # 1. Parse SUPER_ADMIN_ID strictly as numeric integer
         raw_super_admin = os.getenv("SUPER_ADMIN_ID", "8157452043").strip()

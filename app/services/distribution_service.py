@@ -12,8 +12,16 @@ Implements:
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 from aiogram import Bot
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    InputMediaPhoto,
+    InputMediaVideo,
+    InputMediaDocument,
+    InputMediaAudio,
+)
 from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramBadRequest,
@@ -26,12 +34,17 @@ from app.services.rss_storage import (
     SourceItem,
     ChannelItem,
     PostItem,
+    PremiumPostItem,
     get_tashkent_now,
     get_today_tashkent_str,
 )
 from app.services.feed_fetcher import feed_fetcher
 from app.services.feed_parser import escape_tg_html, truncate_text
-from app.services.gemini_translation import gemini_translation
+from app.services.gemini_translator import (
+    gemini_translator,
+    TranslationNotConfiguredError,
+    TranslationTemporaryError,
+)
 
 logger = logging.getLogger("anjurxbot.distribution")
 
@@ -145,7 +158,8 @@ class PostDistributionService:
             await asyncio.sleep(0.5)
 
         if new_items_count > 0:
-            logger.info(f"[Post Pool] Added {new_items_count} new articles to 5-day pool.")
+            logger.info(f"[Post Pool] Added {new_items_count} new articles to pool. Enforcing 500 limit...")
+            await rss_storage.cleanup_post_pool(500)
         return new_items_count
 
     # ==========================================================================
@@ -353,7 +367,7 @@ class PostDistributionService:
 
         # Translate post if needed
         try:
-            translated = await gemini_translation.translate_post(
+            translated = await gemini_translator.translate_post(
                 post_id=post.post_id,
                 title=post.title,
                 description=desc_to_post,
@@ -363,13 +377,48 @@ class PostDistributionService:
             )
             title_to_post = translated.title
             desc_to_post = translated.description
+        except TranslationNotConfiguredError:
+            # Check if user explicitly allowed fallback to original when API key is missing
+            allow_fallback = os.getenv("TRANSLATION_FALLBACK_TO_ORIGINAL", "false").lower() in ("true", "1", "yes")
+            if allow_fallback:
+                logger.info(
+                    f"[TRANSLATOR] API key not configured, delivering original post for channel {channel.title} ({channel.chat_id}) as fallback."
+                )
+            else:
+                logger.warning(
+                    f"[TRANSLATOR] Gemini translator: API key not configured for post {post.post_id} "
+                    f"destined for channel {channel.title} ({channel.chat_id}) [target_lang={target_lang}]. "
+                    "Retaining post in pool as translation_pending without delivering untranslated text."
+                )
+                await rss_storage.update_post_status(
+                    post.post_id,
+                    status="translation_pending",
+                    error="Gemini translator: API key not configured",
+                )
+                return False
+        except TranslationTemporaryError as tte:
+            logger.warning(
+                f"[TRANSLATOR] Temporary translation backoff for post {post.post_id} [{target_lang}]: {tte}. "
+                "Retaining post in pool for scheduled retry."
+            )
+            await rss_storage.update_post_status(
+                post.post_id,
+                status="queued",
+                error=str(tte),
+            )
+            return False
         except Exception as trans_err:
             logger.error(
-                f"[Translation Error] Failed translating post {post.post_id} to '{target_lang}' "
+                f"[TRANSLATOR] Failed translating post {post.post_id} to '{target_lang}' "
                 f"for channel {channel.title} ({channel.chat_id}): {trans_err}. "
-                "Delivering original post as fallback."
+                "Retaining post in pool without sending malformed text."
             )
-            # Fallback to original title and description
+            await rss_storage.update_post_status(
+                post.post_id,
+                status="queued",
+                error=str(trans_err),
+            )
+            return False
 
         formatted_text = self._format_channel_post(
             title=title_to_post,
@@ -378,6 +427,14 @@ class PostDistributionService:
             source_name=post.source_name,
             target_lang=target_lang,
         )
+
+        # Check if channel has inline button footer
+        reply_markup = None
+        if getattr(channel, "footer_type", "none") == "button" and getattr(channel, "footer_url", None):
+            btn_txt = getattr(channel, "footer_text", "") or "Batafsil"
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=btn_txt, url=channel.footer_url)
+            ]])
 
         try:
             # If post has a valid photo/image URL, send as photo
@@ -391,6 +448,7 @@ class PostDistributionService:
                         photo=post.image_url,
                         caption=caption_text,
                         parse_mode="HTML",
+                        reply_markup=reply_markup,
                     )
                 except Exception as img_err:
                     logger.debug(f"Photo send failed for {post.url}, falling back to text: {img_err}")
@@ -402,6 +460,7 @@ class PostDistributionService:
                     text=formatted_text,
                     parse_mode="HTML",
                     disable_web_page_preview=False,
+                    reply_markup=reply_markup,
                 )
 
             msg_id = sent_msg.message_id if sent_msg else None
@@ -414,6 +473,8 @@ class PostDistributionService:
                 title=title_to_post,
                 url=post.url,
                 telegram_message_id=msg_id,
+                target_language=target_lang,
+                post_id=post.post_id,
             )
             # Mark post as delivered
             await rss_storage.update_post_status(
@@ -531,6 +592,250 @@ class PostDistributionService:
         lines.append(f"🔗 <a href=\"{url}\">{read_more}</a>")
 
         return "\n".join(lines)
+
+    # ==========================================================================
+    # 5. PREMIUM CONTENT DISTRIBUTION ENGINE
+    # ==========================================================================
+
+    async def distribute_premium_posts(self, bot: Bot) -> int:
+        """
+        Distributes human-curated premium content to eligible channels:
+        - Independent from RSS 500-post pool limit.
+        - Only for channels where is_premium_eligible=True AND premium_enabled=True.
+        - Respects daily_limit, schedule, and duplicate prevention.
+        - Supports all media formats, custom footers, and AI translation.
+        """
+        ready_posts = await rss_storage.get_ready_premium_posts()
+        if not ready_posts:
+            return 0
+
+        all_channels = await rss_storage.get_all_channels()
+        # Channels must be active, can_post, status == 'ACTIVE', premium, and NOT central post base
+        prem_channels = [
+            c for c in all_channels
+            if c.active and c.can_post and (
+                getattr(c, "premium", False) or getattr(c, "is_premium_eligible", False) or getattr(c, "premium_enabled", False)
+            ) and getattr(c, "status", "ACTIVE") == "ACTIVE" and c.chat_id != -1004373620008
+        ]
+        if not prem_channels:
+            return 0
+
+        delivered_total = 0
+        today_str = get_today_tashkent_str()
+
+        for post in ready_posts:
+            # Find eligible channels for this premium post
+            eligible_for_post: List[ChannelItem] = []
+            for ch in prem_channels:
+                ch.reset_daily_if_needed(today_str)
+                # Respect daily limit
+                if ch.today_delivered_count >= ch.daily_limit:
+                    continue
+                # Respect schedule
+                if not self.is_channel_schedule_ready(ch):
+                    continue
+                # Check duplicate protection
+                if await rss_storage.is_premium_post_delivered(post.id, ch.chat_id):
+                    continue
+                eligible_for_post.append(ch)
+
+            if not eligible_for_post:
+                continue
+
+            # Deliver to each eligible channel that hasn't received this post yet
+            for target_channel in eligible_for_post:
+                # Re-check daily limit in case it changed in this loop
+                if target_channel.today_delivered_count >= target_channel.daily_limit:
+                    continue
+                if await rss_storage.is_premium_post_delivered(post.id, target_channel.chat_id):
+                    continue
+
+                success = await self._deliver_premium_post_to_channel(bot, post, target_channel)
+                if success:
+                    delivered_total += 1
+                    await asyncio.sleep(0.3)
+
+        return delivered_total
+
+    async def _deliver_premium_post_to_channel(
+        self,
+        bot: Bot,
+        post: PremiumPostItem,
+        channel: ChannelItem,
+    ) -> bool:
+        """Delivers a single premium post with optional translation and footer to destination channel."""
+        logger.info(f"[DISTRIBUTION] Starting: postId={post.id}")
+        logger.info(f"[DISTRIBUTION] Target: channelId={channel.chat_id}")
+        target_lang = getattr(channel, "post_language", "uz") or "uz"
+        text_to_send = post.text or ""
+
+        # 1. Translate if requested and language differs
+        if text_to_send and target_lang != "auto":
+            try:
+                translated = await gemini_translator.translate_post(
+                    post_id=post.id,
+                    title="Premium Post",
+                    description=text_to_send,
+                    target_language=target_lang,
+                    channel_id=channel.chat_id,
+                )
+                text_to_send = translated.description or text_to_send
+            except Exception as e:
+                logger.debug(f"[Premium Translate] Fallback to original text for {post.id}: {e}")
+
+        # 2. Append text footer if configured
+        footer_type = getattr(channel, "footer_type", "none")
+        footer_text = getattr(channel, "footer_text", "") or ""
+        footer_url = getattr(channel, "footer_url", "") or ""
+
+        if footer_type == "text" and footer_text:
+            text_to_send = f"{text_to_send}\n\n{escape_tg_html(footer_text)}"
+        elif footer_type == "link" and footer_text and footer_url:
+            text_to_send = f"{text_to_send}\n\n👉 <a href=\"{footer_url}\">{escape_tg_html(footer_text)}</a>"
+
+        # 3. Build inline button reply_markup if configured
+        reply_markup = None
+        if footer_type == "button" and footer_url:
+            btn_label = footer_text or "Batafsil"
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=btn_label, url=footer_url)
+            ]])
+
+        # 4. Dispatch based on media_type
+        sent_msg_id = None
+        try:
+            mtype = post.media_type
+            if mtype == "text":
+                res = await bot.send_message(
+                    chat_id=channel.chat_id,
+                    text=text_to_send,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=False,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "photo" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_photo(
+                    chat_id=channel.chat_id,
+                    photo=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "video" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_video(
+                    chat_id=channel.chat_id,
+                    video=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "document" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_document(
+                    chat_id=channel.chat_id,
+                    document=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "audio" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_audio(
+                    chat_id=channel.chat_id,
+                    audio=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "voice" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_voice(
+                    chat_id=channel.chat_id,
+                    voice=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "animation" and post.media_file_id:
+                caption = truncate_text(text_to_send, 1000)
+                res = await bot.send_animation(
+                    chat_id=channel.chat_id,
+                    animation=post.media_file_id,
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+            elif mtype == "media_group" and post.media_items:
+                media_list = []
+                for idx, itm in enumerate(post.media_items):
+                    cap = truncate_text(text_to_send, 1000) if idx == 0 else None
+                    pm = "HTML" if cap else None
+                    if itm.get("type") == "video":
+                        media_list.append(InputMediaVideo(media=itm["file_id"], caption=cap, parse_mode=pm))
+                    elif itm.get("type") == "document":
+                        media_list.append(InputMediaDocument(media=itm["file_id"], caption=cap, parse_mode=pm))
+                    elif itm.get("type") == "audio":
+                        media_list.append(InputMediaAudio(media=itm["file_id"], caption=cap, parse_mode=pm))
+                    else:
+                        media_list.append(InputMediaPhoto(media=itm["file_id"], caption=cap, parse_mode=pm))
+
+                album_res = await bot.send_media_group(chat_id=channel.chat_id, media=media_list)
+                sent_msg_id = album_res[0].message_id if album_res else None
+                # If button footer exists for media group, send a follow-up link message
+                if reply_markup:
+                    try:
+                        await bot.send_message(
+                            chat_id=channel.chat_id,
+                            text="🔗 Havola:",
+                            reply_markup=reply_markup,
+                        )
+                    except Exception:
+                        pass
+            else:
+                # Fallback to text message
+                res = await bot.send_message(
+                    chat_id=channel.chat_id,
+                    text=text_to_send or "[Media content]",
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                )
+                sent_msg_id = res.message_id
+
+            # 5. Record delivery
+            await rss_storage.record_premium_delivery(
+                post=post,
+                channel=channel,
+                telegram_message_id=sent_msg_id,
+                target_language=target_lang,
+            )
+            logger.info(f"[DISTRIBUTION] SUCCESS: postId={post.id} channelId={channel.chat_id}")
+            logger.info(f"[Premium Delivery] Post {post.id} ({post.media_type}) → Channel '{channel.title}'")
+            return True
+
+        except TelegramRetryAfter as e:
+            logger.error(f"[DISTRIBUTION] FAILED: postId={post.id} channelId={channel.chat_id} error={e}")
+            logger.warning(f"[Premium Delivery] Rate limited. Retry after {e.retry_after}s")
+            await asyncio.sleep(e.retry_after)
+            return False
+        except (TelegramForbiddenError, TelegramBadRequest) as e:
+            logger.error(f"[DISTRIBUTION] FAILED: postId={post.id} channelId={channel.chat_id} error={e}")
+            logger.warning(f"[Premium Delivery] Failed for channel {channel.title} ({channel.chat_id}): {e}")
+            if "not a member" in str(e).lower() or "bot was kicked" in str(e).lower():
+                await rss_storage.update_channel(channel.chat_id, can_post=False, active=False)
+            return False
+        except Exception as e:
+            logger.error(f"[DISTRIBUTION] FAILED: postId={post.id} channelId={channel.chat_id} error={e}")
+            logger.error(f"[Premium Delivery] Unexpected error for {post.id}: {e}")
+            return False
 
 
 # Global singleton instance

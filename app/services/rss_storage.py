@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Any, Tuple, Set
 
 from app.config import config
 from app.services.firebase import firebase_service
+from app.services.recovery_queue import recovery_queue
 from app.services.feed_parser import build_opml
 
 logger = logging.getLogger("anjurxbot.storage")
@@ -190,7 +191,12 @@ class ChannelItem:
     schedule_mode: str = "instant"  # "instant" or "custom" / "scheduled"
     schedule_times: List[str] = field(default_factory=lambda: ["09:00", "14:00", "19:00"])
     selected_sources: List[str] = field(default_factory=list)  # list of source_ids
-    post_language: str = "uz"  # "uz", "ru", "en", or "auto"
+    post_language: str = "uz"  # "uz", "uz_cyrl", "ru", "en", or "auto"
+    is_premium_eligible: bool = False  # Set by Super Admin
+    premium_enabled: bool = False  # Toggled by eligible channel owner
+    footer_type: str = "none"  # "none", "text", "text_link", "inline_button"
+    footer_text: Optional[str] = None
+    footer_url: Optional[str] = None
     today_delivered_count: int = 0
     today_delivered_slots: List[str] = field(default_factory=list)
     today_date: str = field(default_factory=get_today_tashkent_str)
@@ -263,7 +269,7 @@ class ChannelItem:
             mode = "custom"
 
         raw_lang = str(d.get("post_language") or "uz").lower().strip()
-        post_lang = raw_lang if raw_lang in ("uz", "ru", "en", "auto") else "uz"
+        post_lang = raw_lang if raw_lang in ("uz", "uz_cyrl", "ru", "en", "auto") else "uz"
 
         return cls(
             chat_id=cid,
@@ -278,6 +284,11 @@ class ChannelItem:
             schedule_times=times,
             selected_sources=srcs,
             post_language=post_lang,
+            is_premium_eligible=bool(d.get("is_premium_eligible", False)),
+            premium_enabled=bool(d.get("premium_enabled", False)),
+            footer_type=str(d.get("footer_type") or "none"),
+            footer_text=d.get("footer_text"),
+            footer_url=d.get("footer_url"),
             today_delivered_count=int(d.get("today_delivered_count", 0)),
             today_delivered_slots=slots,
             today_date=str(d.get("today_date") or get_today_tashkent_str()),
@@ -383,6 +394,106 @@ class UserItem:
         )
 
 
+@dataclass
+class CentralPoolChannel:
+    """Represents a Central Content Channel where editors post raw content."""
+    chat_id: int
+    title: str
+    username: Optional[str] = None
+    added_by: int = 8157452043
+    active: bool = True
+    bot_is_admin: bool = False
+    can_post: bool = True
+    post_count: int = 0
+    last_post_at: Optional[str] = None
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    @property
+    def id(self) -> str:
+        return str(self.chat_id)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["id"] = str(self.chat_id)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CentralPoolChannel":
+        cid = 0
+        try:
+            cid = int(d.get("chat_id") or d.get("id") or 0)
+        except (ValueError, TypeError):
+            cid = 0
+
+        added = 8157452043
+        try:
+            added = int(d.get("added_by") or 8157452043)
+        except (ValueError, TypeError):
+            added = 8157452043
+
+        return cls(
+            chat_id=cid,
+            title=str(d.get("title") or f"Markaziy Kanal {cid}"),
+            username=d.get("username"),
+            added_by=added,
+            active=bool(d.get("active", True)),
+            bot_is_admin=bool(d.get("bot_is_admin", False)),
+            can_post=bool(d.get("can_post", True)),
+            post_count=int(d.get("post_count", 0)),
+            last_post_at=d.get("last_post_at"),
+            created_at=str(d.get("created_at") or datetime.utcnow().isoformat()),
+            updated_at=str(d.get("updated_at") or datetime.utcnow().isoformat()),
+        )
+
+
+@dataclass
+class PremiumPostItem:
+    """Represents a human-curated premium post collected from a Central Content Channel."""
+    id: str  # "prem_{central_chat_id}_{central_message_id}"
+    central_chat_id: int
+    central_message_id: int
+    media_type: str  # text, photo, video, document, audio, voice, animation, media_group
+    text: str  # message text or caption
+    media_file_id: Optional[str] = None
+    media_group_id: Optional[str] = None
+    media_items: List[Dict[str, Any]] = field(default_factory=list)  # for albums
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    status: str = "ready"  # draft, ready, active, reserved, delivered, archived
+    delivered_count: int = 0
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PremiumPostItem":
+        pid = str(d.get("id") or f"prem_{d.get('central_chat_id')}_{d.get('central_message_id')}")
+        cid = int(d.get("central_chat_id", 0))
+        mid = int(d.get("central_message_id", 0))
+        raw_items = d.get("media_items", [])
+        items = list(raw_items) if isinstance(raw_items, list) else []
+
+        return cls(
+            id=pid,
+            central_chat_id=cid,
+            central_message_id=mid,
+            media_type=str(d.get("media_type") or "text"),
+            text=str(d.get("text") or ""),
+            media_file_id=d.get("media_file_id"),
+            media_group_id=d.get("media_group_id"),
+            media_items=items,
+            author_id=int(d["author_id"]) if d.get("author_id") is not None else None,
+            author_name=d.get("author_name"),
+            status=str(d.get("status") or "ready"),
+            delivered_count=int(d.get("delivered_count", 0)),
+            created_at=str(d.get("created_at") or datetime.utcnow().isoformat()),
+            updated_at=str(d.get("updated_at") or datetime.utcnow().isoformat()),
+        )
+
+
 # Backward compatibility aliases for existing code
 RSSFeed = SourceItem
 DestinationItem = ChannelItem
@@ -401,6 +512,8 @@ class RSSStorage:
         self._channels: Dict[int, ChannelItem] = {}
         self._posts: Dict[str, PostItem] = {}
         self._users: Dict[int, UserItem] = {}
+        self._central_channels: Dict[int, CentralPoolChannel] = {}
+        self._premium_posts: Dict[str, PremiumPostItem] = {}
         self._delivered_signatures: Set[str] = set()  # "src:ext_id:chat_id"
         self._recent_posts: List[Dict[str, Any]] = []
         self._posts_delivered: int = 0
@@ -485,64 +598,55 @@ class RSSStorage:
             except Exception as e:
                 logger.error(f"Error loading local database {self.db_path}: {e}")
 
-        # 2. Sync with Firestore if active
+        # 2. Resilient Firestore Connection & Lightweight Seed if local state empty
         if firebase_service.is_initialized():
             try:
-                fs_cats = await firebase_service.db.list_documents("source_categories", limit=100)
-                for c in fs_cats:
-                    citem = CategoryItem.from_dict(c)
-                    if citem.id:
-                        self._categories[citem.id] = citem
+                await firebase_service.check_health()
 
-                fs_sources = await firebase_service.db.list_documents("sources", limit=500)
-                for s in fs_sources:
-                    item = SourceItem.from_dict(s)
-                    self._sources[item.id] = item
+                # Only load essential categories & sources if local database was completely empty (fresh container)
+                if not self._categories:
+                    fs_cats = await firebase_service.db.list_documents("source_categories", limit=50)
+                    for c in fs_cats:
+                        citem = CategoryItem.from_dict(c)
+                        if citem.id:
+                            self._categories[citem.id] = citem
 
-                try:
-                    fs_agg_sources = await firebase_service.db.list_documents("aggregator_sources", limit=500)
-                    for s in fs_agg_sources:
+                if not self._sources:
+                    fs_sources = await firebase_service.db.list_documents("sources", limit=100)
+                    for s in fs_sources:
                         item = SourceItem.from_dict(s)
-                        if item.id not in self._sources:
-                            self._sources[item.id] = item
-                except Exception:
-                    pass
+                        self._sources[item.id] = item
 
-                fs_channels = await firebase_service.db.list_documents("channels", limit=500)
-                for c in fs_channels:
-                    citem = ChannelItem.from_dict(c)
-                    if citem.chat_id != 0:
-                        self._channels[citem.chat_id] = citem
-
-                try:
-                    fs_agg_channels = await firebase_service.db.list_documents("aggregator_destinations", limit=500)
-                    for c in fs_agg_channels:
+                if not self._channels:
+                    fs_channels = await firebase_service.db.list_documents("channels", limit=100)
+                    for c in fs_channels:
                         citem = ChannelItem.from_dict(c)
-                        if citem.chat_id != 0 and citem.chat_id not in self._channels:
+                        if citem.chat_id != 0:
                             self._channels[citem.chat_id] = citem
-                except Exception:
-                    pass
 
-                fs_posts = await firebase_service.db.list_documents("posts", limit=1000)
-                for p in fs_posts:
-                    pitem = PostItem.from_dict(p)
-                    self._posts[pitem.post_id] = pitem
+                if not self._central_channels:
+                    fs_central = await firebase_service.db.list_documents("central_channels", limit=50)
+                    for cc in fs_central:
+                        ccitem = CentralPoolChannel.from_dict(cc)
+                        if ccitem.chat_id != 0:
+                            self._central_channels[ccitem.chat_id] = ccitem
 
-                fs_users = await firebase_service.db.list_documents("users", limit=500)
-                for u in fs_users:
-                    uitem = UserItem.from_dict(u)
-                    if uitem.user_id != 0:
-                        self._users[uitem.user_id] = uitem
+                if not self._premium_posts:
+                    fs_premium = await firebase_service.db.list_documents("premium_posts", limit=100)
+                    for pp in fs_premium:
+                        ppitem = PremiumPostItem.from_dict(pp)
+                        if ppitem.id:
+                            self._premium_posts[ppitem.id] = ppitem
 
-                fs_delivered = await firebase_service.db.list_documents("delivered_posts", limit=2000)
-                for d in fs_delivered:
-                    sig = str(d.get("signature") or d.get("_id") or "")
-                    if sig:
-                        self._delivered_signatures.add(sig)
+                # Ensure pool limit is strictly <= 500
+                if len(self._posts) > 500:
+                    await self.cleanup_post_pool(500)
 
-                logger.info("Synchronized data with Firebase Firestore.")
+                # Flush recovery queue in background if pending items exist
+                asyncio.create_task(firebase_service.flush_recovery_queue(batch_size=20))
+                logger.info("Firestore health checked and background recovery worker initiated.")
             except Exception as e:
-                logger.warning(f"Failed to sync with Firestore: {e}")
+                logger.warning(f"Firestore startup check deferred: {e}")
 
     def _normalize_and_load(self, data: Any):
         """Parses and normalizes dictionary content into typed in-memory objects."""
@@ -624,6 +728,29 @@ class RSSStorage:
                     except (ValueError, TypeError):
                         pass
 
+        # Central Channels (Content Pool)
+        raw_central = data.get("central_channels", {})
+        if isinstance(raw_central, dict):
+            for k, v in raw_central.items():
+                if isinstance(v, dict):
+                    try:
+                        cid = int(v.get("chat_id") or k)
+                        v["chat_id"] = cid
+                        cchan = CentralPoolChannel.from_dict(v)
+                        if cchan.chat_id != 0:
+                            self._central_channels[cchan.chat_id] = cchan
+                    except (ValueError, TypeError):
+                        pass
+
+        # Premium Posts (Isolated from RSS 500 pool)
+        raw_premium = data.get("premium_posts", {})
+        if isinstance(raw_premium, dict):
+            for k, v in raw_premium.items():
+                if isinstance(v, dict):
+                    v.setdefault("id", k)
+                    ppost = PremiumPostItem.from_dict(v)
+                    self._premium_posts[ppost.id] = ppost
+
         # Delivered signatures
         raw_delivered = data.get("delivered_signatures", data.get("delivered_keys", []))
         if isinstance(raw_delivered, list):
@@ -641,6 +768,8 @@ class RSSStorage:
             "channels": {str(k): v.to_dict() for k, v in self._channels.items()},
             "posts": {k: v.to_dict() for k, v in self._posts.items()},
             "users": {str(k): v.to_dict() for k, v in self._users.items()},
+            "central_channels": {str(k): v.to_dict() for k, v in self._central_channels.items()},
+            "premium_posts": {k: v.to_dict() for k, v in self._premium_posts.items()},
             "delivered_signatures": list(self._delivered_signatures),
             "posts_delivered": self._posts_delivered,
             "recent_posts": self._recent_posts[-100:],
@@ -855,14 +984,7 @@ class RSSStorage:
                 self._channels[cid] = channel
 
             await self._save_local()
-            if firebase_service.is_initialized():
-                try:
-                    ch_dict = channel.to_dict()
-                    await firebase_service.db.set_document("channels", str(cid), ch_dict)
-                    await firebase_service.db.set_document("aggregator_destinations", str(cid), ch_dict)
-                except Exception as e:
-                    logger.warning(f"Firestore set_document failed for channel {cid}: {e}")
-
+            await firebase_service.save_channel_resilient(cid, channel.to_dict())
             return channel
 
     async def update_channel_sources(self, chat_id: int, selected_sources: List[str], user_id: int) -> bool:
@@ -875,12 +997,7 @@ class RSSStorage:
             channel.selected_sources = selected_sources
             channel.updated_at = datetime.utcnow().isoformat()
             await self._save_local()
-
-            if firebase_service.is_initialized():
-                try:
-                    await firebase_service.db.set_document("channels", str(chat_id), channel.to_dict())
-                except Exception:
-                    pass
+            await firebase_service.save_channel_resilient(int(chat_id), channel.to_dict())
             return True
 
     async def update_channel_settings(
@@ -913,17 +1030,12 @@ class RSSStorage:
                 channel.active = active
             if post_language is not None:
                 clean_lang = post_language.lower().strip()
-                if clean_lang in ("uz", "ru", "en", "auto"):
+                if clean_lang in ("uz", "uz_cyrl", "ru", "en", "auto"):
                     channel.post_language = clean_lang
 
             channel.updated_at = datetime.utcnow().isoformat()
             await self._save_local()
-
-            if firebase_service.is_initialized():
-                try:
-                    await firebase_service.db.set_document("channels", str(chat_id), channel.to_dict())
-                except Exception:
-                    pass
+            await firebase_service.save_channel_resilient(int(chat_id), channel.to_dict())
             return channel
 
     async def disconnect_channel(self, chat_id: int, user_id: int) -> bool:
@@ -936,7 +1048,7 @@ class RSSStorage:
             del self._channels[int(chat_id)]
             await self._save_local()
 
-            if firebase_service.is_initialized():
+            if firebase_service.is_initialized() and not firebase_service.is_quota_exhausted():
                 try:
                     await firebase_service.db.delete_document("channels", str(chat_id))
                 except Exception:
@@ -977,6 +1089,7 @@ class RSSStorage:
                 )
                 self._users[uid] = user
             await self._save_local()
+            await firebase_service.save_user_resilient(uid, user.to_dict())
             return user
 
     async def get_all_users(self) -> List[UserItem]:
@@ -1008,29 +1121,43 @@ class RSSStorage:
                     ch.plan = plan
                     ch.daily_limit = custom_limit
                     ch.updated_at = datetime.utcnow().isoformat()
+                    await firebase_service.save_channel_resilient(ch.chat_id, ch.to_dict())
 
             await self._save_local()
+            await firebase_service.save_user_resilient(uid, user.to_dict())
             return user
 
     # ==========================================================================
-    # 5-DAY RETENTION POST POOL OPERATIONS
+    # POST POOL (MAXIMUM 500 POSTS) OPERATIONS
     # ==========================================================================
 
     async def save_post_to_pool(self, post: PostItem) -> bool:
-        """Saves a normalized post into the 5-Day Retention Post Pool."""
+        """
+        Saves a post into the Post Pool (Max 500 items).
+        If post already exists by post_id or duplicate source+external_post_id: SKIPS.
+        If pool exceeds 500, immediately runs targeted cleanup prioritizing newest posts.
+        """
         await self.init()
         async with self._lock:
             if post.post_id in self._posts:
                 return False  # Already in pool
+
+            # Duplicate check across all active pool items
+            for p in self._posts.values():
+                if p.source_id == post.source_id and p.external_post_id == post.external_post_id:
+                    return False
+
             self._posts[post.post_id] = post
             await self._save_local()
 
-            if firebase_service.is_initialized():
-                try:
-                    await firebase_service.db.set_document("posts", post.post_id, post.to_dict())
-                except Exception:
-                    pass
-            return True
+            # Resilient Cloud Save with SQLite recovery fallback
+            await firebase_service.save_post_resilient(post.to_dict())
+
+        # Enforce pool limit of 500
+        if len(self._posts) > 500:
+            await self.cleanup_post_pool(500)
+
+        return True
 
     async def get_post_from_pool(self, post_id: str) -> Optional[PostItem]:
         await self.init()
@@ -1042,7 +1169,7 @@ class RSSStorage:
         now = datetime.utcnow()
         queued = []
         for p in self._posts.values():
-            if p.status == "queued":
+            if p.status in ("queued", "translation_pending"):
                 if p.is_expired(now):
                     p.status = "expired"
                 else:
@@ -1071,35 +1198,76 @@ class RSSStorage:
                 post.attempts += 1
             await self._save_local()
 
-            if firebase_service.is_initialized():
-                try:
-                    await firebase_service.db.set_document("posts", post_id, post.to_dict())
-                except Exception:
-                    pass
+            # Resilient Cloud Save with SQLite recovery fallback
+            await firebase_service.save_post_resilient(post.to_dict())
             return True
 
-    async def cleanup_expired_posts(self) -> int:
+    async def cleanup_post_pool(self, max_limit: int = 500) -> int:
         """
-        Cleans up expired posts (>5 days old) according to requirement 38.
-        Keeps duplicate signatures intact to prevent ever re-sending historical news.
+        Maintains Post Pool at <= max_limit (500) items.
+        Strict cleanup order:
+        1. Expired posts
+        2. Oldest delivered posts (if > 500)
+        3. Oldest queued / assigned / failed posts (if still > 500)
+        4. Newest posts prioritized and preserved!
+        Batch deletes from Firestore and local pool.
         """
         await self.init()
         async with self._lock:
+            total = len(self._posts)
             now = datetime.utcnow()
-            expired_ids = []
-            for pid, post in list(self._posts.items()):
-                if post.is_expired(now):
-                    post.status = "expired"
-                    expired_ids.append(pid)
+            to_delete_ids: List[str] = []
+            remaining: List[PostItem] = []
 
-            if expired_ids:
-                # Remove oldest expired posts from in-memory pool if pool exceeds 3000 items
-                if len(self._posts) > 3000:
-                    for pid in expired_ids[:500]:
-                        self._posts.pop(pid, None)
+            # Step 1: Expired posts first
+            for pid, post in list(self._posts.items()):
+                if post.status == "expired" or post.is_expired(now):
+                    to_delete_ids.append(pid)
+                else:
+                    remaining.append(post)
+
+            # Step 2: If still > max_limit, delete oldest delivered
+            if len(remaining) > max_limit:
+                delivered = [p for p in remaining if p.status == "delivered"]
+                delivered.sort(key=lambda p: p.delivered_at or p.fetched_at or "")
+                excess = len(remaining) - max_limit
+                del_to_remove = delivered[:excess]
+                del_ids = {p.post_id for p in del_to_remove}
+                to_delete_ids.extend(del_ids)
+                remaining = [p for p in remaining if p.post_id not in del_ids]
+
+            # Step 3: If still > max_limit, delete oldest queued / assigned / failed
+            if len(remaining) > max_limit:
+                remaining.sort(key=lambda p: p.fetched_at or "")
+                excess = len(remaining) - max_limit
+                oldest_to_remove = remaining[:excess]
+                old_ids = {p.post_id for p in oldest_to_remove}
+                to_delete_ids.extend(old_ids)
+                remaining = remaining[excess:]
+
+            if to_delete_ids:
+                for pid in to_delete_ids:
+                    self._posts.pop(pid, None)
+
                 await self._save_local()
-                logger.info(f"Cleaned up {len(expired_ids)} expired posts older than 5 days.")
-            return len(expired_ids)
+
+                # Controlled deletion from Firestore: NEVER run huge delete storms
+                # If Firestore is quota-exhausted, keep local pool clean and defer cloud deletes
+                if firebase_service.is_initialized() and not firebase_service.is_quota_exhausted():
+                    try:
+                        # Process at most 25 deletes per cleanup cycle
+                        for pid in to_delete_ids[:25]:
+                            await firebase_service.db.delete_document("posts", pid)
+                            await asyncio.sleep(0.04)
+                    except Exception as e:
+                        logger.debug(f"Firestore batch post delete notice: {e}")
+
+                logger.info(f"[Post Pool Cleanup] Cleaned up {len(to_delete_ids)} posts. Pool size now: {len(self._posts)} <= {max_limit}")
+            return len(to_delete_ids)
+
+    async def cleanup_expired_posts(self) -> int:
+        """Enforces the 500-post pool limit and cleans expired/excess posts."""
+        return await self.cleanup_post_pool(500)
 
     # ==========================================================================
     # DUPLICATE PROTECTION & DELIVERY TRACKING
@@ -1112,7 +1280,12 @@ class RSSStorage:
         """Guarantees strict duplicate prevention per (source, external_id, channel)."""
         await self.init()
         sig = self.make_delivery_signature(source_id, external_post_id, channel_id)
-        return sig in self._delivered_signatures
+        if sig in self._delivered_signatures:
+            return True
+        post_uid = f"post_{source_id}_{external_post_id}"
+        if recovery_queue.is_delivery_already_sent(post_uid, channel_id):
+            return True
+        return False
 
     async def record_delivery(
         self,
@@ -1122,6 +1295,8 @@ class RSSStorage:
         title: str,
         url: str,
         telegram_message_id: Optional[int] = None,
+        target_language: Optional[str] = None,
+        post_id: Optional[str] = None,
     ):
         """Records delivery to prevent duplication and tracks statistics."""
         await self.init()
@@ -1130,14 +1305,22 @@ class RSSStorage:
             self._delivered_signatures.add(sig)
             self._posts_delivered += 1
 
+            post_uid = post_id or f"post_{source_id}_{external_post_id}"
+
+            # Register delivery intent and confirm Telegram message sent locally
+            intent_id, _ = recovery_queue.register_delivery_intent(post_uid, int(channel_id))
+            recovery_queue.mark_delivery_intent_sent(intent_id, telegram_message_id)
+
             record = {
                 "signature": sig,
+                "post_id": post_uid,
                 "source_id": source_id,
                 "external_post_id": external_post_id,
                 "channel_id": channel_id,
                 "title": title,
                 "url": url,
                 "telegram_message_id": telegram_message_id,
+                "target_language": target_language or "auto",
                 "delivered_at": datetime.utcnow().isoformat(),
             }
             self._recent_posts.append(record)
@@ -1152,15 +1335,13 @@ class RSSStorage:
                 ch.total_delivered_count += 1
                 ch.last_delivered_at = datetime.utcnow().isoformat()
                 ch.updated_at = datetime.utcnow().isoformat()
+                await firebase_service.save_channel_resilient(ch.chat_id, ch.to_dict())
 
             await self._save_local()
 
-            if firebase_service.is_initialized():
-                try:
-                    await firebase_service.db.set_document("delivered_posts", sig, record)
-                    await firebase_service.increment_stat("posts_delivered", 1)
-                except Exception:
-                    pass
+            # Resilient Cloud Save with SQLite recovery fallback
+            await firebase_service.record_delivery_resilient(record)
+            await firebase_service.increment_stat_resilient("posts_delivered", 1)
 
     # ==========================================================================
     # STATS & MONITORING
@@ -1172,9 +1353,12 @@ class RSSStorage:
         active_sources = sum(1 for s in self._sources.values() if s.active)
 
         queued_posts = sum(1 for p in self._posts.values() if p.status == "queued")
+        assigned_posts = sum(1 for p in self._posts.values() if p.status == "assigned")
         delivered_posts = sum(1 for p in self._posts.values() if p.status == "delivered")
         expired_posts = sum(1 for p in self._posts.values() if p.status == "expired")
         failed_posts = sum(1 for p in self._posts.values() if p.status == "failed")
+
+        diag = firebase_service.get_diagnostics()
 
         return {
             "total_sources": len(self._sources),
@@ -1183,11 +1367,21 @@ class RSSStorage:
             "active_channels": active_channels,
             "total_users": len(self._users),
             "posts_delivered": self._posts_delivered,
+            "total_posts": len(self._posts),
+            "queued_posts": queued_posts,
+            "assigned_posts": assigned_posts,
+            "delivered_posts": delivered_posts,
+            "expired_posts": expired_posts,
+            "failed_posts": failed_posts,
             "pool_queued": queued_posts,
+            "pool_assigned": assigned_posts,
             "pool_delivered": delivered_posts,
             "pool_expired": expired_posts,
             "pool_failed": failed_posts,
             "total_in_pool": len(self._posts),
+            "pool_max": 500,
+            "firestore_health": diag,
+            "is_stale": diag.get("is_stale", False),
         }
 
     # ==========================================================================
@@ -1320,6 +1514,130 @@ class RSSStorage:
         ch.selected_sources.clear()
         await self._save_local()
         return count
+
+    # ==========================================================================
+    # CENTRAL CONTENT POOL & PREMIUM POST OPERATIONS
+    # ==========================================================================
+
+    async def get_all_central_channels(self, active_only: bool = False) -> List[CentralPoolChannel]:
+        await self.init()
+        async with self._lock:
+            if active_only:
+                return [c for c in self._central_channels.values() if c.active]
+            return list(self._central_channels.values())
+
+    async def get_central_channel(self, chat_id: int) -> Optional[CentralPoolChannel]:
+        await self.init()
+        async with self._lock:
+            return self._central_channels.get(chat_id)
+
+    async def save_central_channel(self, channel: CentralPoolChannel):
+        await self.init()
+        async with self._lock:
+            self._central_channels[channel.chat_id] = channel
+            await self._save_local()
+            # Also save resiliently to Firestore
+            await firebase_service.save_entity_resilient(
+                "central_channels",
+                str(channel.chat_id),
+                channel.to_dict()
+            )
+
+    async def delete_central_channel(self, chat_id: int) -> bool:
+        await self.init()
+        async with self._lock:
+            if chat_id in self._central_channels:
+                del self._central_channels[chat_id]
+                await self._save_local()
+                return True
+            return False
+
+    async def get_all_premium_posts(self, status: Optional[str] = None) -> List[PremiumPostItem]:
+        await self.init()
+        async with self._lock:
+            posts = list(self._premium_posts.values())
+            if status:
+                posts = [p for p in posts if p.status == status]
+            return sorted(posts, key=lambda p: p.created_at, reverse=True)
+
+    async def get_ready_premium_posts(self) -> List[PremiumPostItem]:
+        """Returns premium posts that are active/ready for delivery."""
+        await self.init()
+        async with self._lock:
+            posts = [p for p in self._premium_posts.values() if p.status in ("ready", "active", "delivered")]
+            return sorted(posts, key=lambda p: p.created_at, reverse=False)
+
+    async def get_premium_post(self, post_id: str) -> Optional[PremiumPostItem]:
+        await self.init()
+        async with self._lock:
+            return self._premium_posts.get(post_id)
+
+    async def save_premium_post(self, post: PremiumPostItem):
+        await self.init()
+        async with self._lock:
+            self._premium_posts[post.id] = post
+            # Update central channel's post count
+            if post.central_chat_id in self._central_channels:
+                ch = self._central_channels[post.central_chat_id]
+                ch.post_count = sum(1 for p in self._premium_posts.values() if p.central_chat_id == post.central_chat_id)
+                ch.last_post_at = post.created_at
+                ch.updated_at = datetime.utcnow().isoformat()
+            await self._save_local()
+            # Also save to Firestore
+            await firebase_service.save_entity_resilient(
+                "premium_posts",
+                post.id,
+                post.to_dict()
+            )
+
+    async def is_premium_post_delivered(self, post_id: str, channel_id: int) -> bool:
+        sig = f"prem:{post_id}:{channel_id}"
+        async with self._lock:
+            return sig in self._delivered_signatures
+
+    async def record_premium_delivery(
+        self,
+        post: PremiumPostItem,
+        channel: ChannelItem,
+        telegram_message_id: Optional[int] = None,
+        target_language: str = "uz"
+    ):
+        await self.init()
+        sig = f"prem:{post.id}:{channel.chat_id}"
+        now_iso = datetime.utcnow().isoformat()
+        async with self._lock:
+            self._delivered_signatures.add(sig)
+            self._posts_delivered += 1
+            post.delivered_count += 1
+            if post.status == "ready":
+                post.status = "delivered"
+            post.updated_at = now_iso
+
+            channel.today_delivered_count += 1
+            channel.total_delivered_count += 1
+            channel.last_delivered_at = now_iso
+            channel.updated_at = now_iso
+
+            record = {
+                "signature": sig,
+                "source_id": f"central_{post.central_chat_id}",
+                "external_post_id": str(post.central_message_id),
+                "post_id": post.id,
+                "channel_id": channel.chat_id,
+                "channel_title": channel.title,
+                "title": post.text[:80] if post.text else f"Premium Post #{post.central_message_id}",
+                "url": f"https://t.me/c/{str(post.central_chat_id).replace('-100', '')}/{post.central_message_id}",
+                "telegram_message_id": telegram_message_id,
+                "delivered_at": now_iso,
+                "target_language": target_language,
+            }
+            self._recent_posts.append(record)
+            if len(self._recent_posts) > 100:
+                self._recent_posts = self._recent_posts[-100:]
+
+            await self._save_local()
+            await firebase_service.record_delivery_resilient(record)
+            await firebase_service.increment_stat_resilient("posts_delivered", 1)
 
 
 # Global singleton instance

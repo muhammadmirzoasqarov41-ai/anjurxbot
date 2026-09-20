@@ -12,6 +12,7 @@ import { DistributionView } from './components/DistributionView';
 import { SystemView } from './components/SystemView';
 import { LogsView } from './components/LogsView';
 import { SettingsView } from './components/SettingsView';
+import { PremiumContentView } from './components/PremiumContentView';
 import { MoreMenuModal } from './components/MoreMenuModal';
 import { ArrowLeft } from 'lucide-react';
 
@@ -90,7 +91,7 @@ export default function App() {
     }
   };
 
-  const isSubView = ['users', 'distribution', 'system', 'logs', 'settings'].includes(currentTab);
+  const isSubView = ['users', 'distribution', 'system', 'logs', 'settings', 'premium'].includes(currentTab);
 
   // Direct Admin Dashboard Control Center
   return (
@@ -160,6 +161,10 @@ export default function App() {
 
         {currentTab === 'settings' && (
           <SettingsView />
+        )}
+
+        {currentTab === 'premium' && (
+          <PremiumContentView />
         )}
       </main>
 

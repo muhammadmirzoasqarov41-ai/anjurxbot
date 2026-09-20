@@ -32,3 +32,10 @@ class AdminAddSourceState(StatesGroup):
 class SetScheduleTimesState(StatesGroup):
     """Workflow for user entering custom schedule times (e.g. 09:30, 14:00, 20:00)."""
     waiting_for_times = State()
+
+
+class ChannelFooterState(StatesGroup):
+    """Workflow for user configuring custom channel footer text or link/button."""
+    waiting_for_text = State()
+    waiting_for_url = State()
+

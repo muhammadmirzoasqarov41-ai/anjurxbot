@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { initializeApp, cert, getApps, ServiceAccount } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { createServer as createViteServer } from 'vite';
+import { recoveryQueueNode } from './server/recoveryQueue';
 
 dotenv.config();
 
@@ -264,6 +265,8 @@ export interface ChannelRecord {
   username: string | null;
   owner_user_id: number;
   active: boolean;
+  status?: 'ACTIVE' | 'PAUSED' | 'BLOCKED' | string;
+  premium?: boolean;
   can_post: boolean;
   daily_limit: number;
   plan: string;
@@ -271,11 +274,20 @@ export interface ChannelRecord {
   schedule_times: string[];
   selected_sources: string[];
   post_language?: string;
+  is_premium_eligible?: boolean;
+  premium_enabled?: boolean;
+  footer_type?: 'none' | 'text' | 'text_link' | 'inline_button' | string;
+  footer_text?: string;
+  footer_url?: string;
   today_delivered_count: number;
+  sent_today?: number;
   today_delivered_slots?: string[];
   today_date: string;
   last_delivered_at: string | null;
+  last_post_at?: string | null;
   total_delivered_count: number;
+  error_status?: string | null;
+  connected_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -315,12 +327,89 @@ export interface DeliveryLogRecord {
   signature: string;
   source_id: string;
   external_post_id: string;
+  post_id?: string;
   channel_id: number;
   channel_title?: string;
   title: string;
   url: string;
   telegram_message_id: number | null;
   delivered_at: string;
+  target_language?: string;
+}
+
+export interface CentralChannelRecord {
+  id: string;
+  chat_id: number;
+  title: string;
+  username: string | null;
+  description?: string | null;
+  added_by: number;
+  active: boolean;
+  bot_is_admin: boolean;
+  can_post?: boolean;
+  post_count: number;
+  last_post_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PremiumMediaItemRecord {
+  type: string;
+  file_id: string;
+  caption?: string;
+}
+
+export interface ScheduleSlotRecord {
+  id: string;
+  time: string; // "08:00", "13:00", "20:30"
+  label: string;
+  active: boolean;
+  timezone: string; // "Asia/Tashkent"
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PostDistributionRecord {
+  id: string; // `${postId}__channel_${targetChannelId}`
+  post_id: string;
+  target_channel_id: number;
+  target_channel_title: string;
+  status: 'PENDING' | 'SENT' | 'FAILED';
+  attempts: number;
+  last_attempt_at: string | null;
+  sent_message_id: number | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PremiumPostRecord {
+  id: string;
+  source_chat_id?: number;
+  source_message_id?: number;
+  central_chat_id: number;
+  central_message_id: number;
+  media_type: string;
+  text: string;
+  media_file_id: string | null;
+  media_group_id: string | null;
+  media_items?: PremiumMediaItemRecord[];
+  author_id?: number | null;
+  author_name?: string | null;
+  status: 'PENDING' | 'SCHEDULED' | 'PROCESSING' | 'SENT' | 'PARTIAL' | 'FAILED' | 'CANCELLED' | 'draft' | 'ready' | 'active' | 'reserved' | 'delivered' | 'archived' | string;
+  distribution_type?: 'premium';
+  target_mode?: 'all_active' | 'selected';
+  target_channel_ids?: number[];
+  target_count?: number;
+  successful_count?: number;
+  failed_count?: number;
+  delivered_count: number;
+  scheduled_at?: string | null;
+  last_attempt_at?: string | null;
+  last_error?: string | null;
+  retry_count?: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface UnifiedDatabaseState {
@@ -330,6 +419,10 @@ export interface UnifiedDatabaseState {
   channels: Record<string, ChannelRecord>;
   posts: Record<string, PostRecord>;
   users: Record<string, UserRecord>;
+  central_channels: Record<string, CentralChannelRecord>;
+  premium_posts: Record<string, PremiumPostRecord>;
+  schedules: Record<string, ScheduleSlotRecord>;
+  post_distributions: Record<string, PostDistributionRecord>;
   delivered_signatures: string[];
   posts_delivered: number;
   recent_posts: DeliveryLogRecord[];
@@ -352,6 +445,10 @@ function loadDatabase(): UnifiedDatabaseState {
     channels: {},
     posts: {},
     users: {},
+    central_channels: {},
+    premium_posts: {},
+    schedules: {},
+    post_distributions: {},
     delivered_signatures: [],
     posts_delivered: 0,
     recent_posts: [],
@@ -368,6 +465,68 @@ function loadDatabase(): UnifiedDatabaseState {
     }
   } catch (e: any) {
     console.error('Error loading local database:', e.message);
+  }
+
+  // Ensure default central channel @anjurxpostbaza (-1004373620008)
+  if (!data.central_channels) {
+    data.central_channels = {};
+  }
+  if (!data.central_channels['-1004373620008']) {
+    data.central_channels['-1004373620008'] = {
+      id: '-1004373620008',
+      chat_id: -1004373620008,
+      title: 'post baza',
+      username: 'anjurxpostbaza',
+      description: 'anjurx boti uchun postlar bazasi',
+      added_by: 8157452043,
+      active: true,
+      bot_is_admin: true,
+      can_post: true,
+      post_count: Object.keys(data.premium_posts || {}).length,
+      last_post_at: null,
+      created_at: '2026-09-19T14:47:57.672Z',
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  // Ensure default distribution schedules (Tashkent UTC+5)
+  if (!data.schedules || Object.keys(data.schedules).length === 0) {
+    data.schedules = {
+      slot_1: {
+        id: 'slot_1',
+        time: '08:00',
+        label: 'Ertalabki tarqatish',
+        active: true,
+        timezone: 'Asia/Tashkent',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      slot_2: {
+        id: 'slot_2',
+        time: '13:00',
+        label: 'Tushki tarqatish',
+        active: true,
+        timezone: 'Asia/Tashkent',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      slot_3: {
+        id: 'slot_3',
+        time: '20:30',
+        label: 'Kechki tarqatish',
+        active: true,
+        timezone: 'Asia/Tashkent',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  if (!data.post_distributions) {
+    data.post_distributions = {};
+  }
+  if (!data.premium_posts) {
+    data.premium_posts = {};
   }
 
   // Ensure default categories exist
@@ -495,6 +654,14 @@ function loadDatabase(): UnifiedDatabaseState {
     data.posts = {};
   }
 
+  if (!data.central_channels) {
+    data.central_channels = {};
+  }
+
+  if (!data.premium_posts) {
+    data.premium_posts = {};
+  }
+
   if (!data.delivered_signatures) {
     data.delivered_signatures = [];
   }
@@ -513,31 +680,6 @@ function saveDatabase(data: UnifiedDatabaseState) {
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tmp, DB_FILE);
 
-    // Sync to Firestore if initialized
-    const fsDb = getFirestoreDb();
-    if (fsDb) {
-      // Async background sync without blocking response
-      (async () => {
-        try {
-          const batch = fsDb.batch();
-          for (const [id, cat] of Object.entries(data.categories || {})) {
-            batch.set(fsDb.collection('source_categories').doc(id), cat, { merge: true });
-          }
-          for (const [id, s] of Object.entries(data.sources)) {
-            batch.set(fsDb.collection('sources').doc(id), s, { merge: true });
-          }
-          for (const [id, c] of Object.entries(data.channels)) {
-            batch.set(fsDb.collection('channels').doc(id), c, { merge: true });
-          }
-          for (const [id, u] of Object.entries(data.users)) {
-            batch.set(fsDb.collection('users').doc(id), u, { merge: true });
-          }
-          await batch.commit();
-        } catch (e: any) {
-          console.warn('Firestore sync failed in background:', e.message);
-        }
-      })();
-    }
     broadcastEvent('database_changed', {
       total_users: Object.keys(data.users || {}).length,
       users: Object.values(data.users || {}),
@@ -548,411 +690,521 @@ function saveDatabase(data: UnifiedDatabaseState) {
   }
 }
 
+/**
+ * Resilient entity persistence: writes targeted document directly to Firestore if healthy,
+ * or diverts to SQLite recovery queue if Firestore is unavailable or quota-exhausted.
+ */
+export async function saveEntityResilient(
+  collection: 'source_categories' | 'sources' | 'channels' | 'users' | 'posts' | 'settings' | 'central_channels' | 'premium_posts' | 'schedules' | 'post_distributions',
+  docId: string,
+  data: any
+) {
+  const tableMap: Record<string, string> = {
+    source_categories: 'pending_categories',
+    sources: 'pending_sources',
+    channels: 'pending_channels',
+    users: 'pending_users',
+    posts: 'pending_posts',
+    settings: 'pending_stats',
+    central_channels: 'pending_channels',
+    premium_posts: 'pending_posts',
+    schedules: 'pending_stats',
+    post_distributions: 'pending_stats',
+  };
+  const table = tableMap[collection] || 'pending_stats';
+
+  const fsDb = getFirestoreDb();
+  if (!fsDb || recoveryQueueNode.isQuotaExceeded()) {
+    recoveryQueueNode.enqueueEvent(table, docId, 'upsert', data);
+    return;
+  }
+
+  try {
+    await fsDb.collection(collection).doc(docId).set(data, { merge: true });
+    recoveryQueueNode.recordSuccess('write');
+  } catch (err: any) {
+    if (recoveryQueueNode.isQuotaError(err)) {
+      recoveryQueueNode.recordQuotaError(err);
+      recoveryQueueNode.enqueueEvent(table, docId, 'upsert', data);
+    } else {
+      recoveryQueueNode.recordError('write', err);
+    }
+  }
+}
+
 // --------------------------------------------------------------------------
-// Firestore Continuous Bi-Directional Real-Time Synchronization Engine
+// Firestore Continuous Bi-Directional Synchronization & Pool Enforcement
 // --------------------------------------------------------------------------
+export const MAX_POST_POOL_LIMIT = 500;
+
+export let firestoreHealthStatus: 'online' | 'quota_exceeded' | 'standby' = 'standby';
+export let firestoreHealthMessage = 'Firestore sozlanmagan';
+export let firestoreLastQuotaNotice: string | null = null;
 let firestoreSyncInitialized = false;
+
+/**
+ * Enforces the strict 500-post pool limit.
+ * Cleanup algorithm:
+ * 1. Expired posts
+ * 2. Oldest delivered posts (if > 500)
+ * 3. Oldest queued / assigned / failed posts (if still > 500)
+ * 4. Preserves freshest, newest posts!
+ * Deletes in Firestore via batches (up to 450 per batch).
+ */
+export async function cleanupPostPool(
+  db: UnifiedDatabaseState,
+  fsDb?: FirebaseFirestore.Firestore | null
+): Promise<{ deleted_count: number; remaining_count: number }> {
+  const posts = Object.values(db.posts || {});
+  const now = Date.now();
+
+  for (const p of posts) {
+    if (p.expires_at && new Date(p.expires_at).getTime() <= now && p.status !== 'delivered') {
+      p.status = 'expired';
+    }
+  }
+
+  if (posts.length <= MAX_POST_POOL_LIMIT) {
+    return { deleted_count: 0, remaining_count: posts.length };
+  }
+
+  const toDeleteIds: string[] = [];
+  let remaining: PostRecord[] = [];
+
+  // Step 1: Expired posts first
+  for (const p of posts) {
+    if (p.status === 'expired' || (p.expires_at && new Date(p.expires_at).getTime() <= now && p.status !== 'delivered')) {
+      toDeleteIds.push(p.post_id);
+    } else {
+      remaining.push(p);
+    }
+  }
+
+  // Step 2: If still > 500, delete oldest delivered posts
+  if (remaining.length > MAX_POST_POOL_LIMIT) {
+    const delivered = remaining.filter((p) => p.status === 'delivered');
+    delivered.sort((a, b) => {
+      const tA = new Date(a.delivered_at || a.fetched_at || 0).getTime();
+      const tB = new Date(b.delivered_at || b.fetched_at || 0).getTime();
+      return tA - tB;
+    });
+
+    const excess = remaining.length - MAX_POST_POOL_LIMIT;
+    const deliveredToRemove = delivered.slice(0, excess);
+    const delSet = new Set(deliveredToRemove.map((p) => p.post_id));
+    for (const p of deliveredToRemove) {
+      toDeleteIds.push(p.post_id);
+    }
+    remaining = remaining.filter((p) => !delSet.has(p.post_id));
+  }
+
+  // Step 3: If still > 500, delete oldest queued / assigned / failed posts
+  if (remaining.length > MAX_POST_POOL_LIMIT) {
+    remaining.sort((a, b) => {
+      const tA = new Date(a.fetched_at || 0).getTime();
+      const tB = new Date(b.fetched_at || 0).getTime();
+      return tA - tB;
+    });
+
+    const excess = remaining.length - MAX_POST_POOL_LIMIT;
+    const oldestToRemove = remaining.slice(0, excess);
+    const oldSet = new Set(oldestToRemove.map((p) => p.post_id));
+    for (const p of oldestToRemove) {
+      toDeleteIds.push(p.post_id);
+    }
+    remaining = remaining.filter((p) => !oldSet.has(p.post_id));
+  }
+
+  // Apply deletions locally
+  for (const id of toDeleteIds) {
+    delete db.posts[id];
+  }
+
+  db.updated_at = new Date().toISOString();
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.error('Failed saving cleaned database:', err.message);
+  }
+
+  // Apply controlled deletions to Firestore only if healthy (never huge delete storms)
+  if (fsDb && toDeleteIds.length > 0 && !recoveryQueueNode.isQuotaExceeded()) {
+    try {
+      // Process small batch of at most 25 deletes per run
+      const batchIds = toDeleteIds.slice(0, 25);
+      const batch = fsDb.batch();
+      for (const pid of batchIds) {
+        batch.delete(fsDb.collection('posts').doc(pid));
+      }
+      await batch.commit();
+      recoveryQueueNode.recordSuccess('write');
+      console.log(`[Firestore Batch Cleanup] Successfully purged ${batchIds.length} excess/expired posts from Firestore.`);
+    } catch (fsErr: any) {
+      if (recoveryQueueNode.isQuotaError(fsErr)) {
+        recoveryQueueNode.recordQuotaError(fsErr);
+      } else {
+        recoveryQueueNode.recordError('write', fsErr);
+      }
+      console.warn('[Firestore Cleanup Notice]:', fsErr.message);
+    }
+  }
+
+  console.log(`[Post Pool Cleanup] Purged ${toDeleteIds.length} posts. Post pool count now: ${Object.keys(db.posts).length} <= ${MAX_POST_POOL_LIMIT}`);
+  return { deleted_count: toDeleteIds.length, remaining_count: Object.keys(db.posts).length };
+}
 
 export async function syncFirestoreToLocal() {
   const fsDb = getFirestoreDb();
-  if (!fsDb) return;
+  if (!fsDb) {
+    return;
+  }
+
+  // 1. Cheap health check ping (Single write, zero full scans)
+  try {
+    await fsDb.collection('settings').doc('system_health').set({
+      ping_at: new Date().toISOString(),
+      service: 'web_admin',
+    }, { merge: true });
+    recoveryQueueNode.recordSuccess('write');
+  } catch (err: any) {
+    if (recoveryQueueNode.isQuotaError(err)) {
+      recoveryQueueNode.recordQuotaError(err);
+      console.warn('[Firestore Startup] Quota exceeded on startup health check. Skipping scans.');
+      return;
+    }
+    recoveryQueueNode.recordError('write', err);
+  }
 
   try {
     const data = loadDatabase();
-    const todayStr = getTashkentDateStr();
 
-    // 1. Sync Categories
-    try {
-      const catsSnap = await fsDb.collection('source_categories').get();
-      if (!catsSnap.empty) {
-        catsSnap.forEach((doc) => {
-          const cat = doc.data();
-          data.categories[doc.id] = {
-            id: doc.id,
-            name: cat.name || doc.id,
-            slug: cat.slug || doc.id,
-            description: cat.description || '',
-            icon: cat.icon || 'tag',
-            active: cat.active !== false,
-            sort_order: Number(cat.sort_order || 0),
-            created_at: cat.created_at || new Date().toISOString(),
-            updated_at: cat.updated_at || new Date().toISOString(),
-          };
-        });
-      }
-    } catch {}
+    // 2. Only seed categories & sources if local database was completely empty (fresh container)
+    const hasCategories = Object.keys(data.categories || {}).length > 0;
+    const hasSources = Object.keys(data.sources || {}).length > 0;
 
-    // 2. Sync Sources
-    try {
-      const sourcesSnap = await fsDb.collection('sources').get();
-      if (!sourcesSnap.empty) {
-        sourcesSnap.forEach((doc) => {
-          const s = doc.data();
-          data.sources[doc.id] = {
-            id: doc.id,
-            name: s.name || 'Manba',
-            url: s.url || '',
-            feed_url: s.feed_url || s.url || '',
-            website_url: s.website_url || '',
-            type: s.type || 'rss',
-            category_id: s.category_id || '',
-            category: s.category || 'Yangiliklar',
-            description: s.description || '',
-            language: s.language || 'uz',
-            country: s.country || 'UZ',
-            active: s.active !== false,
-            created_at: s.created_at || new Date().toISOString(),
-            updated_at: s.updated_at || new Date().toISOString(),
-            last_fetch_at: s.last_fetch_at || null,
-            last_success_at: s.last_success_at || null,
-            last_error: s.last_error || null,
-            last_error_at: s.last_error_at || null,
-            error_count: Number(s.error_count || 0),
-            etag: s.etag || null,
-            last_modified: s.last_modified || null,
-            posts_count: Number(s.posts_count || 0),
-          };
-        });
-      }
-    } catch {}
-
-    // 3. Sync Users
-    try {
-      const usersSnap = await fsDb.collection('users').get();
-      if (!usersSnap.empty) {
-        data.users = data.users || {};
-        usersSnap.forEach((doc) => {
-          const u = doc.data();
-          const uid = u.user_id ? String(u.user_id) : doc.id;
-          data.users[uid] = {
-            user_id: parseInt(uid, 10),
-            username: u.username || null,
-            first_name: u.first_name || '',
-            plan: u.plan || 'free',
-            custom_limit: u.custom_limit ? Number(u.custom_limit) : null,
-            created_at: u.created_at || new Date().toISOString(),
-            updated_at: u.updated_at || new Date().toISOString(),
-          };
-        });
-      }
-    } catch {}
-
-    // 4. Sync Channels
-    try {
-      const channelsSnap = await fsDb.collection('channels').get();
-      if (!channelsSnap.empty) {
-        data.channels = data.channels || {};
-        channelsSnap.forEach((doc) => {
-          const c = doc.data();
-          const cid = c.chat_id ? String(c.chat_id) : doc.id;
-          data.channels[cid] = {
-            chat_id: parseInt(cid, 10),
-            title: c.title || `Kanal ${cid}`,
-            username: c.username || null,
-            owner_user_id: parseInt(c.owner_user_id || 0, 10),
-            active: c.active !== false,
-            can_post: c.can_post !== false,
-            daily_limit: Number(c.daily_limit || 3),
-            plan: c.plan || 'free',
-            schedule_mode: c.schedule_mode || 'instant',
-            schedule_times: Array.isArray(c.schedule_times) ? c.schedule_times : ['09:00', '14:00', '19:00'],
-            selected_sources: Array.isArray(c.selected_sources) ? c.selected_sources : [],
-            today_delivered_count: Number(c.today_delivered_count || 0),
-            today_date: c.today_date || todayStr,
-            last_delivered_at: c.last_delivered_at || null,
-            total_delivered_count: Number(c.total_delivered_count || 0),
-            created_at: c.created_at || new Date().toISOString(),
-            updated_at: c.updated_at || new Date().toISOString(),
-          };
-        });
-      }
-    } catch {}
-
-    // 5. Sync Delivered Posts
-    let totalDeliveredDocs = 0;
-    try {
-      const deliveredSnap = await fsDb.collection('delivered_posts').get();
-      totalDeliveredDocs = deliveredSnap.size;
-      if (!deliveredSnap.empty) {
-        const signatures = new Set(data.delivered_signatures || []);
-        const recentList: any[] = [];
-
-        deliveredSnap.forEach((doc) => {
-          const rec = doc.data();
-          signatures.add(doc.id);
-          recentList.push({
-            signature: doc.id,
-            source_id: rec.source_id || rec.feed_id || '',
-            external_post_id: rec.external_post_id || doc.id,
-            channel_id: rec.channel_id || 0,
-            title: rec.title || '',
-            url: rec.url || rec.link || '',
-            delivered_at: rec.delivered_at || rec.published_at || new Date().toISOString(),
-            telegram_message_id: rec.telegram_message_id || null,
+    if (!hasCategories && !recoveryQueueNode.isQuotaExceeded()) {
+      try {
+        const catsSnap = await fsDb.collection('source_categories').limit(50).get();
+        if (!catsSnap.empty) {
+          catsSnap.forEach((doc) => {
+            const cat = doc.data();
+            data.categories[doc.id] = {
+              id: doc.id,
+              name: cat.name || doc.id,
+              slug: cat.slug || doc.id,
+              description: cat.description || '',
+              icon: cat.icon || 'tag',
+              active: cat.active !== false,
+              sort_order: Number(cat.sort_order || 0),
+              created_at: cat.created_at || new Date().toISOString(),
+              updated_at: cat.updated_at || new Date().toISOString(),
+            };
           });
-        });
-
-        data.delivered_signatures = Array.from(signatures);
-        recentList.sort((a, b) => new Date(b.delivered_at).getTime() - new Date(a.delivered_at).getTime());
-        data.recent_posts = recentList.slice(0, 100);
-
-        // Dynamically compute channels delivered counts
-        for (const ch of Object.values(data.channels)) {
-          const chDeliveries = recentList.filter((r) => String(r.channel_id) === String(ch.chat_id));
-          if (chDeliveries.length > 0) {
-            ch.total_delivered_count = Math.max(ch.total_delivered_count || 0, chDeliveries.length);
-            const todayCount = chDeliveries.filter((r) => (r.delivered_at || '').startsWith(todayStr)).length;
-            ch.today_delivered_count = Math.max(ch.today_delivered_count || 0, todayCount);
-            ch.today_date = todayStr;
-          }
+          recoveryQueueNode.recordSuccess('read');
         }
+      } catch (e: any) {
+        if (recoveryQueueNode.isQuotaError(e)) recoveryQueueNode.recordQuotaError(e);
       }
-    } catch {}
+    }
 
-    // 6. Sync Posts (5-day retention pool)
-    try {
-      const postsSnap = await fsDb.collection('posts').get();
-      if (!postsSnap.empty) {
-        data.posts = data.posts || {};
-        postsSnap.forEach((doc) => {
-          const p = doc.data();
-          const pid = p.post_id || doc.id;
-          const isDelivered = p.status === 'delivered' || (data.delivered_signatures && data.delivered_signatures.includes(pid));
-          const isExpired = p.expires_at ? new Date(p.expires_at).getTime() <= Date.now() : false;
-          const status = isDelivered ? 'delivered' : isExpired ? 'expired' : (p.status || 'queued');
-
-          data.posts[pid] = {
-            post_id: pid,
-            source_id: p.source_id || '',
-            source_name: p.source_name || 'Manba',
-            external_post_id: p.external_post_id || pid,
-            title: p.title || 'Yangi post',
-            description: p.description || '',
-            content: p.content || '',
-            url: p.url || '',
-            image_url: p.image_url || null,
-            media_type: p.media_type || null,
-            published_at: p.published_at || null,
-            fetched_at: p.fetched_at || new Date().toISOString(),
-            expires_at: p.expires_at || new Date(Date.now() + 5 * 86400 * 1000).toISOString(),
-            status,
-            assigned_channel_id: p.assigned_channel_id || null,
-            delivered_at: p.delivered_at || null,
-            attempts: Number(p.attempts || 0),
-            last_error: p.last_error || null,
-          };
-        });
+    if (!hasSources && !recoveryQueueNode.isQuotaExceeded()) {
+      try {
+        const sourcesSnap = await fsDb.collection('sources').limit(100).get();
+        if (!sourcesSnap.empty) {
+          sourcesSnap.forEach((doc) => {
+            const s = doc.data();
+            data.sources[doc.id] = {
+              id: doc.id,
+              name: s.name || 'Manba',
+              url: s.url || '',
+              feed_url: s.feed_url || s.url || '',
+              website_url: s.website_url || '',
+              type: s.type || 'rss',
+              category_id: s.category_id || '',
+              category: s.category || 'Yangiliklar',
+              description: s.description || '',
+              language: s.language || 'uz',
+              country: s.country || 'UZ',
+              active: s.active !== false,
+              created_at: s.created_at || new Date().toISOString(),
+              updated_at: s.updated_at || new Date().toISOString(),
+              last_fetch_at: s.last_fetch_at || null,
+              last_success_at: s.last_success_at || null,
+              last_error: s.last_error || null,
+              last_error_at: s.last_error_at || null,
+              error_count: Number(s.error_count || 0),
+              etag: s.etag || null,
+              last_modified: s.last_modified || null,
+              posts_count: Number(s.posts_count || 0),
+            };
+          });
+          recoveryQueueNode.recordSuccess('read');
+        }
+      } catch (e: any) {
+        if (recoveryQueueNode.isQuotaError(e)) recoveryQueueNode.recordQuotaError(e);
       }
-    } catch {}
+    }
 
-    // 7. Aggregate Total Delivered
-    try {
-      const statsSnap = await fsDb.collection('daily_stats').get();
-      let totalDaily = 0;
-      statsSnap.forEach((d) => {
-        totalDaily += Number(d.data().posts_delivered || 0);
-      });
-      data.posts_delivered = Math.max(totalDeliveredDocs, totalDaily, data.posts_delivered || 0);
-    } catch {}
+    // Load Central Channels if not present
+    if (Object.keys(data.central_channels || {}).length === 0 && !recoveryQueueNode.isQuotaExceeded()) {
+      try {
+        const cchanSnap = await fsDb.collection('central_channels').limit(50).get();
+        if (!cchanSnap.empty) {
+          cchanSnap.forEach((doc) => {
+            const c = doc.data();
+            const cid = Number(c.chat_id || doc.id);
+            data.central_channels[cid] = {
+              id: String(cid),
+              chat_id: cid,
+              title: c.title || `Markaziy Kanal ${cid}`,
+              username: c.username || null,
+              description: c.description || null,
+              added_by: Number(c.added_by || 8157452043),
+              active: c.active !== false,
+              bot_is_admin: c.bot_is_admin !== false,
+              can_post: c.can_post !== false,
+              post_count: Number(c.post_count || 0),
+              last_post_at: c.last_post_at || null,
+              created_at: c.created_at || new Date().toISOString(),
+              updated_at: c.updated_at || new Date().toISOString(),
+            };
+          });
+          recoveryQueueNode.recordSuccess('read');
+        }
+      } catch (e: any) {
+        if (recoveryQueueNode.isQuotaError(e)) recoveryQueueNode.recordQuotaError(e);
+      }
+    }
 
-    // Save locally
-    data.updated_at = new Date().toISOString();
-    const dir = path.dirname(DB_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    // Load Premium Posts if not present
+    if (Object.keys(data.premium_posts || {}).length === 0 && !recoveryQueueNode.isQuotaExceeded()) {
+      try {
+        const ppostsSnap = await fsDb.collection('premium_posts').limit(100).get();
+        if (!ppostsSnap.empty) {
+          ppostsSnap.forEach((doc) => {
+            const p = doc.data();
+            const pid = p.id || doc.id;
+            data.premium_posts[pid] = {
+              id: pid,
+              central_chat_id: Number(p.central_chat_id || 0),
+              central_message_id: Number(p.central_message_id || 0),
+              media_type: p.media_type || 'text',
+              text: p.text || '',
+              media_file_id: p.media_file_id || null,
+              media_group_id: p.media_group_id || null,
+              media_items: p.media_items || [],
+              author_id: p.author_id || null,
+              author_name: p.author_name || null,
+              status: p.status || 'ready',
+              delivered_count: Number(p.delivered_count || 0),
+              created_at: p.created_at || new Date().toISOString(),
+              updated_at: p.updated_at || new Date().toISOString(),
+            };
+          });
+          recoveryQueueNode.recordSuccess('read');
+        }
+      } catch (e: any) {
+        if (recoveryQueueNode.isQuotaError(e)) recoveryQueueNode.recordQuotaError(e);
+      }
+    }
+
+    // Enforce 500 post limit cleanup on local pool
+    await cleanupPostPool(data, fsDb);
   } catch (err: any) {
-    console.error('[Firestore Sync Error]:', err.message);
+    if (recoveryQueueNode.isQuotaError(err)) {
+      recoveryQueueNode.recordQuotaError(err);
+    }
+    console.error('[Firestore Targeted Sync Notice]:', err.message);
   }
 }
 
 export function initFirestoreRealtimeListeners() {
   const fsDb = getFirestoreDb();
   if (!fsDb || firestoreSyncInitialized) return;
+  if (recoveryQueueNode.isQuotaExceeded()) {
+    console.log('[Firestore] Realtime listeners deferred due to active QUOTA_EXCEEDED state.');
+    return;
+  }
   firestoreSyncInitialized = true;
 
-  console.log('[Firestore] Registering real-time listeners for live synchronization...');
+  console.log('[Firestore] Registering lightweight real-time listeners (users & channels only)...');
 
-  // Live Users Listener
-  fsDb.collection('users').onSnapshot((snap) => {
-    try {
-      const data = loadDatabase();
-      snap.docChanges().forEach((change) => {
-        const u = change.doc.data();
-        const uid = u.user_id ? String(u.user_id) : change.doc.id;
-        if (change.type === 'removed') {
-          delete data.users[uid];
-        } else {
-          data.users[uid] = {
-            user_id: parseInt(uid, 10),
-            username: u.username || null,
-            first_name: u.first_name || '',
-            plan: u.plan || 'free',
-            custom_limit: u.custom_limit ? Number(u.custom_limit) : null,
-            created_at: u.created_at || new Date().toISOString(),
-            updated_at: u.updated_at || new Date().toISOString(),
-          };
-        }
-      });
-      data.updated_at = new Date().toISOString();
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-      broadcastEvent('users_updated', {
-        total_users: Object.keys(data.users).length,
-        users: Object.values(data.users),
-        total_channels: Object.keys(data.channels).length,
-      });
-      broadcastEvent('dashboard_updated', {});
-    } catch (e: any) {
-      console.warn('Error in users onSnapshot:', e.message);
-    }
-  });
-
-  // Live Channels Listener
-  fsDb.collection('channels').onSnapshot((snap) => {
-    try {
-      const data = loadDatabase();
-      const todayStr = getTashkentDateStr();
-      snap.docChanges().forEach((change) => {
-        const c = change.doc.data();
-        const cid = c.chat_id ? String(c.chat_id) : change.doc.id;
-        if (change.type === 'removed') {
-          delete data.channels[cid];
-        } else {
-          data.channels[cid] = {
-            chat_id: parseInt(cid, 10),
-            title: c.title || `Kanal ${cid}`,
-            username: c.username || null,
-            owner_user_id: parseInt(c.owner_user_id || 0, 10),
-            active: c.active !== false,
-            can_post: c.can_post !== false,
-            daily_limit: Number(c.daily_limit || 3),
-            plan: c.plan || 'free',
-            schedule_mode: c.schedule_mode || 'instant',
-            schedule_times: Array.isArray(c.schedule_times) ? c.schedule_times : ['09:00', '14:00', '19:00'],
-            selected_sources: Array.isArray(c.selected_sources) ? c.selected_sources : [],
-            today_delivered_count: Number(c.today_delivered_count || 0),
-            today_date: c.today_date || todayStr,
-            last_delivered_at: c.last_delivered_at || null,
-            total_delivered_count: Number(c.total_delivered_count || 0),
-            created_at: c.created_at || new Date().toISOString(),
-            updated_at: c.updated_at || new Date().toISOString(),
-          };
-        }
-      });
-      data.updated_at = new Date().toISOString();
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-      broadcastEvent('channels_updated', {
-        total_channels: Object.keys(data.channels).length,
-        channels: Object.values(data.channels),
-      });
-      broadcastEvent('dashboard_updated', {});
-    } catch (e: any) {
-      console.warn('Error in channels onSnapshot:', e.message);
-    }
-  });
-
-  // Live Posts Listener
-  fsDb.collection('posts').onSnapshot((snap) => {
-    try {
-      const data = loadDatabase();
-      snap.docChanges().forEach((change) => {
-        const p = change.doc.data();
-        const pid = p.post_id || change.doc.id;
-        if (change.type === 'removed') {
-          delete data.posts[pid];
-        } else {
-          const isDelivered = p.status === 'delivered' || (data.delivered_signatures && data.delivered_signatures.includes(pid));
-          const isExpired = p.expires_at ? new Date(p.expires_at).getTime() <= Date.now() : false;
-          data.posts[pid] = {
-            post_id: pid,
-            source_id: p.source_id || '',
-            source_name: p.source_name || 'Manba',
-            external_post_id: p.external_post_id || pid,
-            title: p.title || 'Yangi post',
-            description: p.description || '',
-            content: p.content || '',
-            url: p.url || '',
-            image_url: p.image_url || null,
-            media_type: p.media_type || null,
-            published_at: p.published_at || null,
-            fetched_at: p.fetched_at || new Date().toISOString(),
-            expires_at: p.expires_at || new Date(Date.now() + 5 * 86400 * 1000).toISOString(),
-            status: isDelivered ? 'delivered' : isExpired ? 'expired' : (p.status || 'queued'),
-            assigned_channel_id: p.assigned_channel_id || null,
-            delivered_at: p.delivered_at || null,
-            attempts: Number(p.attempts || 0),
-            last_error: p.last_error || null,
-          };
-        }
-      });
-      data.updated_at = new Date().toISOString();
-      fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-      broadcastEvent('posts_updated', {
-        total_posts: Object.keys(data.posts).length,
-      });
-      broadcastEvent('dashboard_updated', {});
-    } catch (e: any) {
-      console.warn('Error in posts onSnapshot:', e.message);
-    }
-  });
-
-  // Live Delivered Posts Listener
-  fsDb.collection('delivered_posts').onSnapshot((snap) => {
-    try {
-      const data = loadDatabase();
-      let added = 0;
-      snap.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          added++;
-          const rec = change.doc.data();
-          if (!data.delivered_signatures.includes(change.doc.id)) {
-            data.delivered_signatures.push(change.doc.id);
+  // Live Users Listener (with error handler to catch 429/RESOURCE_EXHAUSTED)
+  fsDb.collection('users').onSnapshot(
+    (snap) => {
+      try {
+        const data = loadDatabase();
+        snap.docChanges().forEach((change) => {
+          const u = change.doc.data();
+          const uid = u.user_id ? String(u.user_id) : change.doc.id;
+          if (change.type === 'removed') {
+            delete data.users[uid];
+          } else {
+            data.users[uid] = {
+              user_id: parseInt(uid, 10),
+              username: u.username || null,
+              first_name: u.first_name || '',
+              plan: u.plan || 'free',
+              custom_limit: u.custom_limit ? Number(u.custom_limit) : null,
+              created_at: u.created_at || new Date().toISOString(),
+              updated_at: u.updated_at || new Date().toISOString(),
+            };
           }
-          data.recent_posts.unshift({
-            signature: change.doc.id,
-            source_id: rec.source_id || rec.feed_id || '',
-            external_post_id: rec.external_post_id || change.doc.id,
-            channel_id: rec.channel_id || 0,
-            title: rec.title || '',
-            url: rec.url || rec.link || '',
-            delivered_at: rec.delivered_at || rec.published_at || new Date().toISOString(),
-            telegram_message_id: rec.telegram_message_id || null,
-          });
-        }
-      });
-      if (added > 0) {
-        data.posts_delivered = Math.max(data.posts_delivered + added, data.delivered_signatures.length);
-        data.recent_posts = data.recent_posts.slice(0, 100);
+        });
         data.updated_at = new Date().toISOString();
         fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
-        broadcastEvent('delivery_occurred', {
-          posts_delivered: data.posts_delivered,
-          recent: data.recent_posts.slice(0, 10),
+        broadcastEvent('users_updated', {
+          total_users: Object.keys(data.users).length,
+          users: Object.values(data.users),
+          total_channels: Object.keys(data.channels).length,
         });
         broadcastEvent('dashboard_updated', {});
+      } catch (e: any) {
+        console.warn('Error in users onSnapshot:', e.message);
       }
-    } catch (e: any) {
-      console.warn('Error in delivered_posts onSnapshot:', e.message);
+    },
+    (err: any) => {
+      if (recoveryQueueNode.isQuotaError(err)) {
+        recoveryQueueNode.recordQuotaError(err);
+        console.warn('[Firestore] Users listener encountered quota error, circuit breaker opened.');
+      }
     }
-  });
+  );
 
-  // Live Daily Stats Listener
-  fsDb.collection('daily_stats').onSnapshot((snap) => {
-    try {
-      const data = loadDatabase();
-      let totalDaily = 0;
-      snap.forEach((d) => {
-        totalDaily += Number(d.data().posts_delivered || 0);
-      });
-      if (totalDaily > 0) {
-        data.posts_delivered = Math.max(data.posts_delivered, totalDaily);
+  // Live Channels Listener (with error handler to catch 429/RESOURCE_EXHAUSTED)
+  fsDb.collection('channels').onSnapshot(
+    (snap) => {
+      try {
+        const data = loadDatabase();
+        const todayStr = getTashkentDateStr();
+        snap.docChanges().forEach((change) => {
+          const c = change.doc.data();
+          const cid = c.chat_id ? String(c.chat_id) : change.doc.id;
+          if (change.type === 'removed') {
+            delete data.channels[cid];
+          } else {
+            data.channels[cid] = {
+              chat_id: parseInt(cid, 10),
+              title: c.title || `Kanal ${cid}`,
+              username: c.username || null,
+              owner_user_id: parseInt(c.owner_user_id || 0, 10),
+              active: c.active !== false,
+              can_post: c.can_post !== false,
+              daily_limit: Number(c.daily_limit || 3),
+              plan: c.plan || 'free',
+              schedule_mode: c.schedule_mode || 'instant',
+              schedule_times: Array.isArray(c.schedule_times) ? c.schedule_times : ['09:00', '14:00', '19:00'],
+              selected_sources: Array.isArray(c.selected_sources) ? c.selected_sources : [],
+              today_delivered_count: Number(c.today_delivered_count || 0),
+              today_date: c.today_date || todayStr,
+              last_delivered_at: c.last_delivered_at || null,
+              total_delivered_count: Number(c.total_delivered_count || 0),
+              created_at: c.created_at || new Date().toISOString(),
+              updated_at: c.updated_at || new Date().toISOString(),
+            };
+          }
+        });
         data.updated_at = new Date().toISOString();
         fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+        broadcastEvent('channels_updated', {
+          total_channels: Object.keys(data.channels).length,
+          channels: Object.values(data.channels),
+        });
         broadcastEvent('dashboard_updated', {});
+      } catch (e: any) {
+        console.warn('Error in channels onSnapshot:', e.message);
       }
-    } catch (e: any) {
-      console.warn('Error in daily_stats onSnapshot:', e.message);
+    },
+    (err: any) => {
+      if (recoveryQueueNode.isQuotaError(err)) {
+        recoveryQueueNode.recordQuotaError(err);
+        console.warn('[Firestore] Channels listener encountered quota error, circuit breaker opened.');
+      }
     }
-  });
+  );
+
+  // Live Central Channels Listener
+  fsDb.collection('central_channels').onSnapshot(
+    (snap) => {
+      try {
+        const data = loadDatabase();
+        snap.docChanges().forEach((change) => {
+          const c = change.doc.data();
+          const cid = Number(c.chat_id || change.doc.id);
+          if (change.type === 'removed') {
+            delete data.central_channels[cid];
+          } else {
+            data.central_channels[cid] = {
+              id: String(cid),
+              chat_id: cid,
+              title: c.title || `Markaziy Kanal ${cid}`,
+              username: c.username || null,
+              description: c.description || null,
+              added_by: Number(c.added_by || 8157452043),
+              active: c.active !== false,
+              bot_is_admin: c.bot_is_admin !== false,
+              can_post: c.can_post !== false,
+              post_count: Number(c.post_count || 0),
+              last_post_at: c.last_post_at || null,
+              created_at: c.created_at || new Date().toISOString(),
+              updated_at: c.updated_at || new Date().toISOString(),
+            };
+          }
+        });
+        data.updated_at = new Date().toISOString();
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (e: any) {
+        console.warn('Error in central_channels onSnapshot:', e.message);
+      }
+    },
+    (err: any) => {
+      if (recoveryQueueNode.isQuotaError(err)) {
+        recoveryQueueNode.recordQuotaError(err);
+      }
+    }
+  );
+
+  // Live Premium Posts Listener
+  fsDb.collection('premium_posts').onSnapshot(
+    (snap) => {
+      try {
+        const data = loadDatabase();
+        snap.docChanges().forEach((change) => {
+          const p = change.doc.data();
+          const pid = p.id || change.doc.id;
+          if (change.type === 'removed') {
+            delete data.premium_posts[pid];
+          } else {
+            data.premium_posts[pid] = {
+              id: pid,
+              central_chat_id: Number(p.central_chat_id || 0),
+              central_message_id: Number(p.central_message_id || 0),
+              media_type: p.media_type || 'text',
+              text: p.text || '',
+              media_file_id: p.media_file_id || null,
+              media_group_id: p.media_group_id || null,
+              media_items: p.media_items || [],
+              author_id: p.author_id || null,
+              author_name: p.author_name || null,
+              status: p.status || 'ready',
+              delivered_count: Number(p.delivered_count || 0),
+              created_at: p.created_at || new Date().toISOString(),
+              updated_at: p.updated_at || new Date().toISOString(),
+            };
+          }
+        });
+        data.updated_at = new Date().toISOString();
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (e: any) {
+        console.warn('Error in premium_posts onSnapshot:', e.message);
+      }
+    },
+    (err: any) => {
+      if (recoveryQueueNode.isQuotaError(err)) {
+        recoveryQueueNode.recordQuotaError(err);
+      }
+    }
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -1104,6 +1356,114 @@ function addSystemLog(level: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL', componen
 }
 
 // ==========================================================================
+// 0. HEALTH & RESILIENCE DIAGNOSTICS (PUBLIC & PROTECTED)
+// ==========================================================================
+
+app.get('/api/health', (req: Request, res: Response) => {
+  const diag = recoveryQueueNode.getDiagnostics();
+  const db = loadDatabase();
+  return res.json({
+    status: 'ok',
+    version: '2.4.0-resilient',
+    timestamp: new Date().toISOString(),
+    firestore_health: {
+      status: diag.firestore_status,
+      is_stale: diag.is_stale,
+      message: diag.message,
+      quota_exceeded: diag.firestore_status === 'QUOTA_EXCEEDED',
+      next_check: diag.next_health_check_at,
+    },
+    pool: {
+      total_posts: Object.keys(db.posts || {}).length,
+      pool_max: MAX_POST_POOL_LIMIT,
+    },
+    recovery_queue: {
+      total_pending: diag.queue.total_pending,
+      total_size: diag.queue.total_queue_size,
+      oldest_item_age_seconds: diag.queue.oldest_item_age_seconds,
+    },
+    translator: {
+      configured: Boolean((process.env.GEMINI_API_KEY || '').trim()),
+      model: (process.env.GEMINI_TRANSLATION_MODEL || 'gemini-3.8-flash').trim() || 'gemini-3.8-flash',
+    },
+  });
+});
+
+app.get('/api/translator/status', (req: Request, res: Response) => {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim();
+  const configured = Boolean(
+    apiKey &&
+      !apiKey.startsWith('YOUR_') &&
+      !apiKey.toLowerCase().includes('placeholder') &&
+      apiKey.length >= 8
+  );
+  const model = (process.env.GEMINI_TRANSLATION_MODEL || 'gemini-3.8-flash').trim() || 'gemini-3.8-flash';
+
+  return res.json({
+    status: 'ok',
+    configured,
+    model,
+    cache_enabled: true,
+    supported_languages: ['uz', 'ru', 'en', 'auto'],
+    last_success_at: null,
+    last_error_at: null,
+    message: configured ? 'Gemini Translator tayyor' : 'Gemini API key sozlanmagan',
+  });
+});
+
+app.get('/api/diagnostics/recovery', authMiddleware, (req: Request, res: Response) => {
+  const diag = recoveryQueueNode.getDiagnostics();
+  const db = loadDatabase();
+  return res.json({
+    status: 'ok',
+    canonical_truth: 'Firestore',
+    local_queue_purpose: 'Crash-safe buffer during quota or transient outages',
+    pool_policy: 'Strict 500 max post limit',
+    diagnostics: diag,
+    pool_stats: {
+      total_posts: Object.keys(db.posts || {}).length,
+      pool_max: MAX_POST_POOL_LIMIT,
+      queued: Object.values(db.posts || {}).filter((p) => p.status === 'queued').length,
+      assigned: Object.values(db.posts || {}).filter((p) => p.status === 'assigned').length,
+      delivered: Object.values(db.posts || {}).filter((p) => p.status === 'delivered').length,
+      expired: Object.values(db.posts || {}).filter((p) => p.status === 'expired').length,
+    },
+  });
+});
+
+app.post('/api/recovery/flush', authMiddleware, async (req: Request, res: Response) => {
+  const fsDb = getFirestoreDb();
+  if (!fsDb) {
+    return res.status(400).json({ error: 'Firestore sozlanmagan' });
+  }
+
+  // Attempt health check probe
+  try {
+    await fsDb.collection('settings').doc('system_health').set({
+      manual_probe_at: new Date().toISOString(),
+      service: 'web_admin',
+    }, { merge: true });
+    recoveryQueueNode.recordSuccess('write');
+    recoveryQueueNode.transitionToRecovering();
+  } catch (err: any) {
+    if (recoveryQueueNode.isQuotaError(err)) {
+      recoveryQueueNode.recordQuotaError(err);
+      return res.status(429).json({
+        error: 'Firestore kvotasi hali ham to‘lgan. Qayta urinib ko‘rish kechiktirildi.',
+        next_check: recoveryQueueNode.getDiagnostics().next_health_check_at,
+      });
+    }
+    return res.status(500).json({ error: err.message });
+  }
+
+  return res.json({
+    status: 'ok',
+    message: 'Firestore aloqasi tasdiqlandi. Tiklanish boshlandi.',
+    diagnostics: recoveryQueueNode.getDiagnostics(),
+  });
+});
+
+// ==========================================================================
 // 1. AUTHENTICATION ENDPOINTS (With Server-Side Bruteforce Protection)
 // ==========================================================================
 
@@ -1239,7 +1599,9 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
   const now = Date.now();
 
   const queuedPosts = postsList.filter((p) => p.status === 'queued' && (!p.expires_at || new Date(p.expires_at).getTime() > now)).length;
+  const assignedPosts = postsList.filter((p) => p.status === 'assigned').length;
   const deliveredPosts = postsList.filter((p) => p.status === 'delivered' || (db.delivered_signatures && db.delivered_signatures.includes(p.post_id))).length;
+  const failedPosts = postsList.filter((p) => p.status === 'failed').length;
   const expiredPosts = postsList.filter((p) => p.status === 'expired' || (p.expires_at && new Date(p.expires_at).getTime() <= now && p.status !== 'delivered')).length;
 
   const deliveredTodayFromChannels = channelsList.reduce((acc, c) => (c.today_date === todayStr ? acc + (c.today_delivered_count || 0) : acc), 0);
@@ -1253,6 +1615,16 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
 
   // Generate dynamic alerts
   const alerts: any[] = [];
+  if (firestoreHealthStatus === 'quota_exceeded') {
+    alerts.push({
+      id: 'alert_firestore_quota',
+      severity: 'warning',
+      title: 'Google Cloud Firestore Kvotasi To‘ldi',
+      message: "Firestore bepul o‘qish/yozish kvotasi tugagan. Tizim avtomatik ravishda diskdagi xavfsiz JSON bazasidan to‘liq va uzluksiz ishlamoqda.",
+      count: 1,
+      action: 'view_system',
+    });
+  }
   if (permissionIssues > 0) {
     alerts.push({
       id: 'alert_perm_issues',
@@ -1289,15 +1661,36 @@ app.get('/api/dashboard', authMiddleware, (req: Request, res: Response) => {
       contract_users: usersList.filter((u) => u.plan === 'contract').length,
       posts_delivered_today: deliveredToday,
       total_delivered: totalDelivered,
+      // Canonical Post Metrics
+      total_posts: postsList.length,
+      queued_posts: queuedPosts,
+      assigned_posts: assignedPosts,
+      delivered_posts: totalDelivered,
+      failed_posts: failedPosts,
+      expired_posts: expiredPosts,
       pool_queued: queuedPosts,
+      pool_assigned: assignedPosts,
       pool_delivered: deliveredPosts,
       pool_expired: expiredPosts,
       pool_total: postsList.length,
+      pool_max: MAX_POST_POOL_LIMIT,
+    },
+    firestore_health: {
+      status: recoveryQueueNode.getState().toLowerCase(),
+      canonical_status: recoveryQueueNode.getState(),
+      message: recoveryQueueNode.getDiagnostics().message,
+      last_quota_notice: recoveryQueueNode.getDiagnostics().last_quota_error_at,
+      queue: recoveryQueueNode.getQueueStats(),
+      diagnostics: recoveryQueueNode.getDiagnostics(),
     },
     pulse: {
       bot: 'online',
       gardener: 'running',
-      storage_mode: getFirestoreDb() ? 'Dual (Firestore + Local)' : 'Local JSON File',
+      storage_mode: getFirestoreDb()
+        ? recoveryQueueNode.isQuotaExceeded()
+          ? 'Firestore (Kvotada - SQLite Navbat Faol)'
+          : 'Dual (Firestore + Local Sync)'
+        : 'Local JSON File',
       uptime_seconds: uptimeSeconds,
       last_sync: db.updated_at,
     },
@@ -1317,6 +1710,8 @@ app.get('/api/channels', authMiddleware, (req: Request, res: Response) => {
   const search = String(req.query.search || '').trim().toLowerCase();
   const status = String(req.query.status || 'all');
   const plan = String(req.query.plan || 'all');
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit || '50'), 10)));
 
   if (search) {
     list = list.filter(
@@ -1340,10 +1735,17 @@ app.get('/api/channels', authMiddleware, (req: Request, res: Response) => {
     list = list.filter((c) => c.plan === plan);
   }
 
+  const total = list.length;
+  const startIndex = (page - 1) * limit;
+  const pagedChannels = list.slice(startIndex, startIndex + limit);
+
   return res.json({
     status: 'ok',
-    total: list.length,
-    channels: list,
+    total,
+    page,
+    limit,
+    total_pages: Math.ceil(total / limit) || 1,
+    channels: pagedChannels,
   });
 });
 
@@ -1382,7 +1784,7 @@ app.patch('/api/channels/:chat_id', authMiddleware, (req: Request, res: Response
   if (typeof active === 'boolean') channel.active = active;
   if (schedule_mode) channel.schedule_mode = schedule_mode;
   if (Array.isArray(schedule_times)) channel.schedule_times = schedule_times;
-  if (post_language && ['uz', 'ru', 'en', 'auto'].includes(post_language.toLowerCase())) {
+  if (post_language && ['uz', 'uz_cyrl', 'ru', 'en', 'auto'].includes(post_language.toLowerCase())) {
     channel.post_language = post_language.toLowerCase();
   }
 
@@ -1544,6 +1946,838 @@ app.delete('/api/channels/:chat_id', authMiddleware, (req: Request, res: Respons
   });
 });
 
+// Update Channel Premium Eligibility (Super Admin Only)
+app.patch('/api/channels/:chat_id/premium-eligibility', authMiddleware, async (req: Request, res: Response) => {
+  const cid = String(req.params.chat_id);
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  const { is_premium_eligible } = req.body;
+  if (typeof is_premium_eligible !== 'boolean') {
+    return res.status(400).json({ error: 'is_premium_eligible maydoni boolean bo‘lishi kerak' });
+  }
+
+  channel.is_premium_eligible = is_premium_eligible;
+  if (!is_premium_eligible) {
+    channel.premium_enabled = false;
+  }
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', cid, channel);
+
+  addSystemLog(
+    'INFO',
+    'Premium',
+    `'${channel.title}' kanali uchun Premium huquqi: ${is_premium_eligible ? 'BERILDI' : 'BEKOR QILINDI'}`
+  );
+
+  return res.json({
+    status: 'ok',
+    channel,
+  });
+});
+
+// Update Channel Footer Configuration
+app.patch('/api/channels/:chat_id/footer', authMiddleware, async (req: Request, res: Response) => {
+  const cid = String(req.params.chat_id);
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  const { footer_type, footer_text, footer_url } = req.body;
+  if (footer_type && !['none', 'text', 'link', 'button'].includes(footer_type)) {
+    return res.status(400).json({ error: 'Noto‘g‘ri footer turi' });
+  }
+
+  if (footer_type !== undefined) channel.footer_type = footer_type;
+  if (footer_text !== undefined) channel.footer_text = footer_text;
+  if (footer_url !== undefined) channel.footer_url = footer_url;
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', cid, channel);
+
+  return res.json({
+    status: 'ok',
+    channel,
+  });
+});
+
+// ==========================================================================
+// 3.5. CENTRAL CONTENT CHANNELS & PREMIUM POSTS (SUPER ADMIN)
+// ==========================================================================
+
+const CENTRAL_POST_BASE_CHAT_ID = -1004373620008;
+
+function escapeHtml(str: string): string {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function verifyBotAdminInChat(chatId: number): Promise<{
+  botIsAdmin: boolean;
+  canPost: boolean;
+  status: string;
+  title?: string;
+  username?: string;
+  description?: string;
+  error?: string;
+}> {
+  const botToken = process.env.BOT_TOKEN;
+  if (!botToken || botToken.trim() === '') {
+    return { botIsAdmin: true, canPost: true, status: 'mock_administrator' };
+  }
+
+  try {
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meData = (await meRes.json()) as any;
+    if (!meData.ok || !meData.result?.id) {
+      return { botIsAdmin: false, canPost: false, status: 'error', error: 'Bot getMe failed' };
+    }
+    const botUserId = meData.result.id;
+
+    const [chatRes, memberRes] = await Promise.all([
+      fetch(`https://api.telegram.org/bot${botToken}/getChat?chat_id=${chatId}`),
+      fetch(`https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${chatId}&user_id=${botUserId}`),
+    ]);
+
+    const chatData = (await chatRes.json()) as any;
+    const memberData = (await memberRes.json()) as any;
+
+    if (!memberData.ok || !memberData.result) {
+      return {
+        botIsAdmin: false,
+        canPost: false,
+        status: memberData.description || 'not_member',
+        error: memberData.description,
+      };
+    }
+
+    const memberStatus = memberData.result.status;
+    const isAdm = memberStatus === 'administrator' || memberStatus === 'creator';
+    const canPost = Boolean(memberData.result.can_post_messages || memberStatus === 'creator' || isAdm);
+
+    return {
+      botIsAdmin: isAdm,
+      canPost,
+      status: memberStatus,
+      title: chatData.result?.title,
+      username: chatData.result?.username,
+      description: chatData.result?.description,
+    };
+  } catch (err: any) {
+    return { botIsAdmin: false, canPost: false, status: 'error', error: err.message };
+  }
+}
+
+// 1. Central Post Base Status Endpoint
+app.get('/api/central-post-base/status', authMiddleware, async (req: Request, res: Response) => {
+  const db = loadDatabase();
+  const centralRecord = db.central_channels[CENTRAL_POST_BASE_CHAT_ID];
+  const premPosts = Object.values(db.premium_posts || {}).filter(
+    (p) => p.central_chat_id === CENTRAL_POST_BASE_CHAT_ID
+  );
+
+  const verify = await verifyBotAdminInChat(CENTRAL_POST_BASE_CHAT_ID);
+
+  let statusMessage = "Bot @anjurxpostbaza kanalida administrator sifatida ulangan va faol.";
+  let actionRequired = false;
+
+  if (!verify.botIsAdmin) {
+    statusMessage = "Bot @anjurxpostbaza kanalida administrator emas. Kanal sozlamalariga kirib, botni admin qiling.";
+    actionRequired = true;
+  } else if (!verify.canPost) {
+    statusMessage = "Bot admin, lekin xabar yuborish (Post Messages) ruxsati yoqilmagan.";
+    actionRequired = true;
+  }
+
+  // Update local DB if verify returned live details
+  if (centralRecord && verify.botIsAdmin !== undefined) {
+    centralRecord.bot_is_admin = verify.botIsAdmin;
+    centralRecord.can_post = verify.canPost;
+    if (verify.title) centralRecord.title = verify.title;
+    if (verify.username) centralRecord.username = verify.username;
+    centralRecord.post_count = premPosts.length;
+    saveDatabase(db);
+  }
+
+  return res.json({
+    status: 'ok',
+    central_post_base: {
+      chat_id: CENTRAL_POST_BASE_CHAT_ID,
+      title: verify.title || centralRecord?.title || 'post baza',
+      username: verify.username || centralRecord?.username || 'anjurxpostbaza',
+      description: verify.description || centralRecord?.description || 'anjurx boti uchun postlar bazasi',
+      bot_is_admin: verify.botIsAdmin,
+      can_post: verify.canPost,
+      member_status: verify.status,
+      post_count: premPosts.length,
+      last_post_at: centralRecord?.last_post_at || (premPosts[0]?.created_at ?? null),
+      status_message: statusMessage,
+      action_required: actionRequired,
+      active: centralRecord?.active ?? true,
+    },
+  });
+});
+
+app.post('/api/central-post-base/recheck', authMiddleware, async (req: Request, res: Response) => {
+  const verify = await verifyBotAdminInChat(CENTRAL_POST_BASE_CHAT_ID);
+  const db = loadDatabase();
+  if (db.central_channels[CENTRAL_POST_BASE_CHAT_ID]) {
+    db.central_channels[CENTRAL_POST_BASE_CHAT_ID].bot_is_admin = verify.botIsAdmin;
+    db.central_channels[CENTRAL_POST_BASE_CHAT_ID].can_post = verify.canPost;
+    if (verify.title) db.central_channels[CENTRAL_POST_BASE_CHAT_ID].title = verify.title;
+    if (verify.username) db.central_channels[CENTRAL_POST_BASE_CHAT_ID].username = verify.username;
+    saveDatabase(db);
+  }
+  return res.json({
+    status: 'ok',
+    verified: verify,
+  });
+});
+
+// 2. Central Channels list and CRUD
+app.get('/api/central-channels', authMiddleware, (req: Request, res: Response) => {
+  const db = loadDatabase();
+  const list = Object.values(db.central_channels || {});
+  return res.json({
+    status: 'ok',
+    total: list.length,
+    central_channels: list,
+  });
+});
+
+app.post('/api/central-channels', authMiddleware, async (req: Request, res: Response) => {
+  const { chat_id, title, username, description } = req.body;
+  if (!chat_id || !title) {
+    return res.status(400).json({ error: 'chat_id va title kiritilishi shart' });
+  }
+
+  const numCid = Number(chat_id);
+  const db = loadDatabase();
+  const now = new Date().toISOString();
+
+  const verify = await verifyBotAdminInChat(numCid);
+  if (!verify.botIsAdmin && process.env.BOT_TOKEN) {
+    return res.status(400).json({
+      error: `Bot ushbu kanalda administrator emas (${verify.status}). Iltimos, avval botni kanalga admin qilib qo‘shing.`,
+    });
+  }
+
+  const record: CentralChannelRecord = {
+    id: String(numCid),
+    chat_id: numCid,
+    title: String(title).trim(),
+    username: username ? String(username).trim() : null,
+    description: description ? String(description).trim() : null,
+    added_by: (req as any).user?.user_id || 8157452043,
+    active: true,
+    bot_is_admin: verify.botIsAdmin,
+    can_post: verify.canPost,
+    post_count: db.central_channels[numCid]?.post_count || 0,
+    last_post_at: db.central_channels[numCid]?.last_post_at || null,
+    created_at: db.central_channels[numCid]?.created_at || now,
+    updated_at: now,
+  };
+
+  db.central_channels[numCid] = record;
+  saveDatabase(db);
+  await saveEntityResilient('central_channels', String(numCid), record);
+  addSystemLog('INFO', 'CentralChannel', `Markaziy kanal saqlandi: '${record.title}' (${record.chat_id})`);
+
+  return res.status(201).json({
+    status: 'ok',
+    central_channel: record,
+  });
+});
+
+app.delete('/api/central-channels/:chat_id', authMiddleware, async (req: Request, res: Response) => {
+  const cid = Number(req.params.chat_id);
+  const db = loadDatabase();
+
+  if (!db.central_channels[cid]) {
+    return res.status(404).json({ error: 'Markaziy kanal topilmadi' });
+  }
+
+  const title = db.central_channels[cid].title;
+  delete db.central_channels[cid];
+  saveDatabase(db);
+
+  addSystemLog('WARNING', 'CentralChannel', `Markaziy kanal o‘chirildi: '${title}' (${cid})`);
+  return res.json({
+    status: 'ok',
+    message: `'${title}' markaziy kanali o‘chirildi`,
+  });
+});
+
+// 3. Premium Channels (Destination channels with premium eligibility/activation)
+app.get('/api/premium-channels', authMiddleware, (req: Request, res: Response) => {
+  const db = loadDatabase();
+  const allChannels = Object.values(db.channels || {});
+
+  // Destination channels that have premium enabled or eligible
+  const premiumChannels = allChannels
+    .filter((c) => c.chat_id !== CENTRAL_POST_BASE_CHAT_ID && (c.premium || c.is_premium_eligible || c.premium_enabled))
+    .map((c) => ({
+      ...c,
+      status: c.status || (c.active ? 'ACTIVE' : 'PAUSED'),
+      premium: Boolean(c.premium || c.is_premium_eligible || c.premium_enabled),
+      sent_today: c.sent_today || c.today_delivered_count || 0,
+    }));
+
+  // Other candidate channels that can be upgraded
+  const connectableChannels = allChannels
+    .filter((c) => c.chat_id !== CENTRAL_POST_BASE_CHAT_ID && !(c.premium || c.is_premium_eligible || c.premium_enabled))
+    .map((c) => ({
+      chat_id: c.chat_id,
+      title: c.title,
+      username: c.username,
+      daily_limit: c.daily_limit,
+      plan: c.plan,
+    }));
+
+  return res.json({
+    status: 'ok',
+    total_premium: premiumChannels.length,
+    premium_channels: premiumChannels,
+    connectable_channels: connectableChannels,
+  });
+});
+
+app.post('/api/channels/:chat_id/make-premium', authMiddleware, async (req: Request, res: Response) => {
+  const cid = Number(req.params.chat_id);
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  channel.premium = true;
+  channel.is_premium_eligible = true;
+  channel.premium_enabled = true;
+  channel.status = 'ACTIVE';
+  channel.active = true;
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', String(cid), channel);
+  addSystemLog('INFO', 'Premium', `'${channel.title}' kanali uchun Premium tarqatish yoqildi`);
+  broadcastEvent('channel_updated', { channel });
+
+  return res.json({ status: 'ok', channel });
+});
+
+app.post('/api/channels/:chat_id/remove-premium', authMiddleware, async (req: Request, res: Response) => {
+  const cid = Number(req.params.chat_id);
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  channel.premium = false;
+  channel.is_premium_eligible = false;
+  channel.premium_enabled = false;
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', String(cid), channel);
+  addSystemLog('INFO', 'Premium', `'${channel.title}' kanali uchun Premium huquqi o‘chirildi`);
+  broadcastEvent('channel_updated', { channel });
+
+  return res.json({ status: 'ok', channel });
+});
+
+app.post('/api/channels/:chat_id/toggle-status', authMiddleware, async (req: Request, res: Response) => {
+  const cid = Number(req.params.chat_id);
+  const { status } = req.body;
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  const targetStatus = ['ACTIVE', 'PAUSED', 'BLOCKED'].includes(status) ? status : (channel.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE');
+  channel.status = targetStatus;
+  channel.active = targetStatus === 'ACTIVE';
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', String(cid), channel);
+  addSystemLog('INFO', 'Channel', `'${channel.title}' holati o‘zgartirildi: ${targetStatus}`);
+  broadcastEvent('channel_updated', { channel });
+
+  return res.json({ status: 'ok', channel });
+});
+
+app.patch('/api/channels/:chat_id/limit', authMiddleware, async (req: Request, res: Response) => {
+  const cid = Number(req.params.chat_id);
+  const { daily_limit } = req.body;
+  const db = loadDatabase();
+  const channel = db.channels[cid];
+  if (!channel) {
+    return res.status(404).json({ error: 'Kanal topilmadi' });
+  }
+
+  channel.daily_limit = Math.max(1, parseInt(String(daily_limit || 20), 10));
+  channel.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('channels', String(cid), channel);
+  return res.json({ status: 'ok', channel });
+});
+
+// 4. Schedules CRUD
+app.get('/api/schedules', authMiddleware, (req: Request, res: Response) => {
+  const db = loadDatabase();
+  const list = Object.values(db.schedules || {}).sort((a, b) => a.time.localeCompare(b.time));
+  return res.json({ status: 'ok', total: list.length, schedules: list });
+});
+
+app.post('/api/schedules', authMiddleware, async (req: Request, res: Response) => {
+  const { time, label } = req.body;
+  if (!time || !/^\d{2}:\d{2}$/.test(String(time).trim())) {
+    return res.status(400).json({ error: 'Vaqt HH:mm formatida bo‘lishi kerak (masalan: 14:30)' });
+  }
+
+  const db = loadDatabase();
+  const cleanTime = String(time).trim();
+  const id = `slot_${Date.now()}`;
+  const record: ScheduleSlotRecord = {
+    id,
+    time: cleanTime,
+    label: label ? String(label).trim() : `${cleanTime} tarqatish`,
+    active: true,
+    timezone: 'Asia/Tashkent',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  db.schedules[id] = record;
+  saveDatabase(db);
+  await saveEntityResilient('schedules', id, record);
+  return res.status(201).json({ status: 'ok', schedule: record });
+});
+
+app.patch('/api/schedules/:id', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const db = loadDatabase();
+  const slot = db.schedules[id];
+  if (!slot) {
+    return res.status(404).json({ error: 'Jadval topilmadi' });
+  }
+
+  if (req.body.time) {
+    const cleanTime = String(req.body.time).trim();
+    if (/^\d{2}:\d{2}$/.test(cleanTime)) slot.time = cleanTime;
+  }
+  if (req.body.label !== undefined) slot.label = String(req.body.label).trim();
+  if (req.body.active !== undefined) slot.active = Boolean(req.body.active);
+  slot.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('schedules', id, slot);
+  return res.json({ status: 'ok', schedule: slot });
+});
+
+app.delete('/api/schedules/:id', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const db = loadDatabase();
+  if (!db.schedules[id]) {
+    return res.status(404).json({ error: 'Jadval topilmadi' });
+  }
+
+  delete db.schedules[id];
+  saveDatabase(db);
+  return res.json({ status: 'ok', message: 'Jadval o‘chirildi' });
+});
+
+// 5. Post Dispatching Function
+async function dispatchPremiumPost(
+  postId: string,
+  options?: { force?: boolean; specificChannelId?: number }
+) {
+  const db = loadDatabase();
+  const post = db.premium_posts[postId];
+  if (!post) {
+    return { success: false, error: 'Post topilmadi' };
+  }
+
+  const botToken = process.env.BOT_TOKEN;
+  if (!botToken || botToken.trim() === '') {
+    return { success: false, error: 'BOT_TOKEN sozlanmagan' };
+  }
+
+  post.status = 'PROCESSING';
+  post.last_attempt_at = new Date().toISOString();
+  saveDatabase(db);
+  broadcastEvent('premium_posts_updated', { post_id: post.id, status: post.status });
+
+  // Filter destination channels (strictly active premium, excluding central post base)
+  let candidateChannels = Object.values(db.channels).filter((c) => {
+    if (c.chat_id === CENTRAL_POST_BASE_CHAT_ID) return false;
+    const isPrem = Boolean(c.premium || c.is_premium_eligible || c.premium_enabled);
+    const isActive = c.status ? c.status === 'ACTIVE' : c.active;
+    return isPrem && isActive && c.can_post;
+  });
+
+  if (options?.specificChannelId) {
+    candidateChannels = candidateChannels.filter((c) => c.chat_id === options.specificChannelId);
+  } else if (post.target_mode === 'selected' && Array.isArray(post.target_channel_ids) && post.target_channel_ids.length > 0) {
+    candidateChannels = candidateChannels.filter((c) => post.target_channel_ids!.includes(c.chat_id));
+  }
+
+  console.log(`[DISTRIBUTION] Starting: postId=${post.id}`);
+
+  let successCount = 0;
+  let failCount = 0;
+  const nowIso = new Date().toISOString();
+
+  for (const ch of candidateChannels) {
+    const sig = `prem:${post.id}:${ch.chat_id}`;
+    if (!options?.force && db.delivered_signatures.includes(sig)) {
+      console.log(`[DISTRIBUTION] Skipping already delivered: postId=${post.id} channelId=${ch.chat_id}`);
+      continue;
+    }
+
+    console.log(`[DISTRIBUTION] Target: channelId=${ch.chat_id}`);
+
+    // Footer formatting
+    let textToSend = post.text || '';
+    let replyMarkup: any = null;
+
+    if (ch.footer_type && ch.footer_type !== 'none') {
+      const fText = ch.footer_text || (ch.username ? `@${ch.username.replace('@', '')}` : ch.title);
+      const fUrl = ch.footer_url || (ch.username ? `https://t.me/${ch.username.replace('@', '')}` : undefined);
+
+      if (ch.footer_type === 'text') {
+        textToSend = textToSend ? `${textToSend}\n\n📢 ${fText}` : `📢 ${fText}`;
+      } else if (ch.footer_type === 'text_link') {
+        const linkHtml = fUrl ? `<a href="${fUrl}">${escapeHtml(fText)}</a>` : escapeHtml(fText);
+        textToSend = textToSend ? `${textToSend}\n\n👉 ${linkHtml}` : `👉 ${linkHtml}`;
+      } else if (ch.footer_type === 'inline_button' && fUrl) {
+        replyMarkup = {
+          inline_keyboard: [[{ text: fText, url: fUrl }]],
+        };
+      }
+    }
+
+    let sentMsgId: number | null = null;
+    let sendError: string | null = null;
+
+    try {
+      if (post.media_type === 'photo' && post.media_file_id) {
+        const body: any = {
+          chat_id: ch.chat_id,
+          photo: post.media_file_id,
+          caption: textToSend.slice(0, 1024),
+          parse_mode: 'HTML',
+        };
+        if (replyMarkup) body.reply_markup = replyMarkup;
+        const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const resJson = (await resp.json()) as any;
+        if (!resJson.ok) throw new Error(resJson.description || 'sendPhoto xatoligi');
+        sentMsgId = resJson.result?.message_id || null;
+      } else if (post.media_type === 'video' && post.media_file_id) {
+        const body: any = {
+          chat_id: ch.chat_id,
+          video: post.media_file_id,
+          caption: textToSend.slice(0, 1024),
+          parse_mode: 'HTML',
+        };
+        if (replyMarkup) body.reply_markup = replyMarkup;
+        const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendVideo`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const resJson = (await resp.json()) as any;
+        if (!resJson.ok) throw new Error(resJson.description || 'sendVideo xatoligi');
+        sentMsgId = resJson.result?.message_id || null;
+      } else if (post.media_type === 'media_group' && Array.isArray(post.media_items) && post.media_items.length > 0) {
+        const media = post.media_items.map((itm, idx) => ({
+          type: itm.type || 'photo',
+          media: itm.file_id,
+          caption: idx === 0 ? textToSend.slice(0, 1024) : undefined,
+          parse_mode: idx === 0 ? 'HTML' : undefined,
+        }));
+        const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: ch.chat_id, media }),
+        });
+        const resJson = (await resp.json()) as any;
+        if (!resJson.ok) throw new Error(resJson.description || 'sendMediaGroup xatoligi');
+        sentMsgId = resJson.result?.[0]?.message_id || null;
+        if (replyMarkup) {
+          try {
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ chat_id: ch.chat_id, text: '🔗 Havola:', reply_markup: replyMarkup }),
+            });
+          } catch {}
+        }
+      } else {
+        const body: any = {
+          chat_id: ch.chat_id,
+          text: textToSend || '...',
+          parse_mode: 'HTML',
+        };
+        if (replyMarkup) body.reply_markup = replyMarkup;
+        const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const resJson = (await resp.json()) as any;
+        if (!resJson.ok) throw new Error(resJson.description || 'sendMessage xatoligi');
+        sentMsgId = resJson.result?.message_id || null;
+      }
+
+      console.log(`[DISTRIBUTION] SUCCESS: postId=${post.id} channelId=${ch.chat_id}`);
+      successCount++;
+
+      // Register delivery signatures & statistics
+      if (!db.delivered_signatures.includes(sig)) {
+        db.delivered_signatures.push(sig);
+      }
+      db.posts_delivered = (db.posts_delivered || 0) + 1;
+      post.delivered_count = (post.delivered_count || 0) + 1;
+
+      ch.today_delivered_count = (ch.today_delivered_count || 0) + 1;
+      ch.sent_today = (ch.sent_today || 0) + 1;
+      ch.total_delivered_count = (ch.total_delivered_count || 0) + 1;
+      ch.last_delivered_at = nowIso;
+      ch.last_post_at = nowIso;
+      ch.updated_at = nowIso;
+
+      const distId = `${post.id}__channel_${ch.chat_id}`;
+      db.post_distributions[distId] = {
+        id: distId,
+        post_id: post.id,
+        target_channel_id: ch.chat_id,
+        target_channel_title: ch.title,
+        status: 'SENT',
+        attempts: 1,
+        last_attempt_at: nowIso,
+        sent_message_id: sentMsgId,
+        error: null,
+        created_at: nowIso,
+        updated_at: nowIso,
+      };
+
+      const delRecord = {
+        signature: sig,
+        source_id: `central_${post.central_chat_id}`,
+        external_post_id: String(post.central_message_id),
+        post_id: post.id,
+        channel_id: ch.chat_id,
+        channel_title: ch.title,
+        title: post.text ? post.text.slice(0, 80) : `Premium Post #${post.central_message_id}`,
+        url: `https://t.me/c/${String(post.central_chat_id).replace('-100', '')}/${post.central_message_id}`,
+        telegram_message_id: sentMsgId,
+        delivered_at: nowIso,
+        target_language: ch.post_language || 'uz',
+      };
+      db.recent_posts.unshift(delRecord as any);
+      if (db.recent_posts.length > 100) db.recent_posts.pop();
+
+      // Persist to Firestore resiliently
+      await saveEntityResilient('channels', String(ch.chat_id), ch);
+      await saveEntityResilient('post_distributions', distId, db.post_distributions[distId]);
+
+    } catch (err: any) {
+      sendError = err.message || 'Telegram API xatoligi';
+      console.error(`[DISTRIBUTION] FAILED: postId=${post.id} channelId=${ch.chat_id} error=${sendError}`);
+      failCount++;
+
+      const distId = `${post.id}__channel_${ch.chat_id}`;
+      db.post_distributions[distId] = {
+        id: distId,
+        post_id: post.id,
+        target_channel_id: ch.chat_id,
+        target_channel_title: ch.title,
+        status: 'FAILED',
+        attempts: (db.post_distributions[distId]?.attempts || 0) + 1,
+        last_attempt_at: nowIso,
+        sent_message_id: null,
+        error: sendError,
+        created_at: db.post_distributions[distId]?.created_at || nowIso,
+        updated_at: nowIso,
+      };
+      await saveEntityResilient('post_distributions', distId, db.post_distributions[distId]);
+    }
+
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  post.target_count = candidateChannels.length;
+  post.successful_count = (post.successful_count || 0) + successCount;
+  post.failed_count = (post.failed_count || 0) + failCount;
+  post.updated_at = new Date().toISOString();
+
+  if (candidateChannels.length === 0) {
+    post.status = 'FAILED';
+    post.last_error = 'Birorta ham faol Premium kanal topilmadi';
+  } else if (failCount === 0 && successCount > 0) {
+    post.status = 'SENT';
+  } else if (successCount > 0 && failCount > 0) {
+    post.status = 'PARTIAL';
+  } else if (successCount === 0 && failCount > 0) {
+    post.status = 'FAILED';
+  }
+
+  saveDatabase(db);
+  await saveEntityResilient('premium_posts', post.id, post);
+  broadcastEvent('premium_posts_updated', { post_id: post.id, status: post.status });
+
+  return { success: successCount > 0, post, successCount, failCount };
+}
+
+// 6. Premium Posts API Endpoints
+app.get('/api/premium-posts', authMiddleware, (req: Request, res: Response) => {
+  const db = loadDatabase();
+  let list = Object.values(db.premium_posts || {});
+
+  const status = String(req.query.status || 'ALL').toUpperCase();
+  const search = String(req.query.search || '').trim().toLowerCase();
+
+  // Compute status counts
+  const counts = {
+    all: list.length,
+    pending: list.filter((p) => p.status === 'PENDING' || p.status === 'ready' || p.status === 'draft').length,
+    scheduled: list.filter((p) => p.status === 'SCHEDULED').length,
+    processing: list.filter((p) => p.status === 'PROCESSING').length,
+    sent: list.filter((p) => p.status === 'SENT' || p.status === 'delivered').length,
+    partial: list.filter((p) => p.status === 'PARTIAL').length,
+    failed: list.filter((p) => p.status === 'FAILED').length,
+    cancelled: list.filter((p) => p.status === 'CANCELLED').length,
+  };
+
+  if (status !== 'ALL') {
+    if (status === 'PENDING') {
+      list = list.filter((p) => p.status === 'PENDING' || p.status === 'ready' || p.status === 'draft');
+    } else if (status === 'SENT') {
+      list = list.filter((p) => p.status === 'SENT' || p.status === 'delivered');
+    } else {
+      list = list.filter((p) => (p.status || '').toUpperCase() === status);
+    }
+  }
+
+  if (search) {
+    list = list.filter(
+      (p) =>
+        (p.text && p.text.toLowerCase().includes(search)) ||
+        p.id.toLowerCase().includes(search) ||
+        (p.author_name && p.author_name.toLowerCase().includes(search))
+    );
+  }
+
+  list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+  const limit = Math.min(100, Math.max(5, parseInt(String(req.query.limit || '20'), 10)));
+  const startIndex = (page - 1) * limit;
+
+  return res.json({
+    status: 'ok',
+    total: list.length,
+    counts,
+    page,
+    limit,
+    posts: list.slice(startIndex, startIndex + limit),
+  });
+});
+
+app.post('/api/premium-posts/:id/schedule', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const { scheduled_at, target_mode, target_channel_ids } = req.body;
+  const db = loadDatabase();
+  const post = db.premium_posts[id];
+  if (!post) {
+    return res.status(404).json({ error: 'Post topilmadi' });
+  }
+
+  post.scheduled_at = scheduled_at || null;
+  post.status = 'SCHEDULED';
+  if (target_mode) post.target_mode = target_mode;
+  if (Array.isArray(target_channel_ids)) post.target_channel_ids = target_channel_ids;
+  post.updated_at = new Date().toISOString();
+
+  saveDatabase(db);
+  await saveEntityResilient('premium_posts', id, post);
+  addSystemLog('INFO', 'Schedule', `Post ${id} rejalashtirildi: ${post.scheduled_at}`);
+  broadcastEvent('premium_posts_updated', { post_id: id, post });
+
+  return res.json({ status: 'ok', post });
+});
+
+app.post('/api/premium-posts/:id/send-now', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const result = await dispatchPremiumPost(id, { force: true });
+  return res.json({
+    status: result.success ? 'ok' : 'error',
+    message: result.success ? 'Post muvaffaqiyatli tarqatildi' : result.error || 'Tarqatishda xatolik yuz berdi',
+    result,
+  });
+});
+
+app.post('/api/premium-posts/:id/cancel', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const db = loadDatabase();
+  const post = db.premium_posts[id];
+  if (!post) {
+    return res.status(404).json({ error: 'Post topilmadi' });
+  }
+
+  post.status = 'CANCELLED';
+  post.updated_at = new Date().toISOString();
+  saveDatabase(db);
+  await saveEntityResilient('premium_posts', id, post);
+  broadcastEvent('premium_posts_updated', { post_id: id, post });
+
+  return res.json({ status: 'ok', post });
+});
+
+app.post('/api/premium-posts/:id/retry', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const result = await dispatchPremiumPost(id, { force: false });
+  return res.json({
+    status: result.success ? 'ok' : 'error',
+    message: result.success ? 'Post qayta tarqatildi' : result.error || 'Qayta urinishda xatolik',
+    result,
+  });
+});
+
+app.delete('/api/premium-posts/:id', authMiddleware, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+  const db = loadDatabase();
+  if (!db.premium_posts[id]) {
+    return res.status(404).json({ error: 'Post topilmadi' });
+  }
+
+  delete db.premium_posts[id];
+  saveDatabase(db);
+  broadcastEvent('premium_posts_updated', { post_id: id, deleted: true });
+  return res.json({ status: 'ok', message: 'Post o‘chirildi' });
+});
+
 // ==========================================================================
 // 4. USERS & CONTRACT MANAGEMENT (PROTECTED)
 // ==========================================================================
@@ -1578,10 +2812,19 @@ app.get('/api/users', authMiddleware, (req: Request, res: Response) => {
     };
   });
 
+  const total = enriched.length;
+  const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit || '50'), 10)));
+  const startIndex = (page - 1) * limit;
+  const pagedUsers = enriched.slice(startIndex, startIndex + limit);
+
   return res.json({
     status: 'ok',
-    total: enriched.length,
-    users: enriched,
+    total,
+    page,
+    limit,
+    total_pages: Math.ceil(total / limit) || 1,
+    users: pagedUsers,
   });
 });
 
@@ -1696,22 +2939,8 @@ app.patch('/api/users/:user_id/contract', authMiddleware, (req: Request, res: Re
 // ==========================================================================
 
 // --- Categories CRUD ---
-app.get('/api/categories', authMiddleware, async (req: Request, res: Response) => {
-  const fsDb = getFirestoreDb();
+app.get('/api/categories', authMiddleware, (req: Request, res: Response) => {
   const db = loadDatabase();
-  if (fsDb) {
-    try {
-      const catSnap = await fsDb.collection('source_categories').get();
-      if (!catSnap.empty) {
-        db.categories = {};
-        for (const doc of catSnap.docs) {
-          db.categories[doc.id] = { ...doc.data(), id: doc.id } as CategoryRecord;
-        }
-      }
-    } catch (e: any) {
-      console.warn('Could not read categories from Firestore:', e.message);
-    }
-  }
 
   const categoriesList = Object.values(db.categories || {}).map((cat) => {
     const source_count = Object.values(db.sources).filter(
@@ -1950,28 +3179,8 @@ app.post('/api/sources/test', authMiddleware, async (req: Request, res: Response
 });
 
 // --- Sources CRUD ---
-app.get('/api/sources', authMiddleware, async (req: Request, res: Response) => {
-  const fsDb = getFirestoreDb();
-  let db = loadDatabase();
-
-  if (fsDb) {
-    try {
-      const snap = await fsDb.collection('sources').get();
-      const freshSources: Record<string, SourceRecord> = {};
-      for (const doc of snap.docs) {
-        freshSources[doc.id] = { ...doc.data(), id: doc.id } as SourceRecord;
-      }
-      db.sources = freshSources;
-      // Also cache to local file without triggering re-sync
-      const dir = path.dirname(DB_FILE);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(`${DB_FILE}.tmp`, JSON.stringify(db, null, 2), 'utf-8');
-      fs.renameSync(`${DB_FILE}.tmp`, DB_FILE);
-    } catch (e: any) {
-      console.warn('Could not fetch sources from Firestore, using local fallback:', e.message);
-    }
-  }
-
+app.get('/api/sources', authMiddleware, (req: Request, res: Response) => {
+  const db = loadDatabase();
   let list = Object.values(db.sources);
 
   const search = String(req.query.search || '').trim().toLowerCase();
@@ -2226,7 +3435,7 @@ app.delete('/api/sources/:id', authMiddleware, async (req: Request, res: Respons
 });
 
 // ==========================================================================
-// 6. POST POOL & 5-DAY RETENTION (PROTECTED)
+// 6. POST POOL & 500-POST RETENTION (PROTECTED)
 // ==========================================================================
 
 app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
@@ -2247,7 +3456,7 @@ app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
   const status = String(req.query.status || 'all');
   const search = String(req.query.search || '').trim().toLowerCase();
   const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
-  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit || '20'), 10)));
+  const limit = Math.min(50, Math.max(5, parseInt(String(req.query.limit || '50'), 10)));
 
   let list = allPosts;
 
@@ -2274,7 +3483,9 @@ app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
   const counts = {
     all: allPosts.length,
     queued: allPosts.filter((p) => p.status === 'queued').length,
+    assigned: allPosts.filter((p) => p.status === 'assigned').length,
     delivered: allPosts.filter((p) => p.status === 'delivered').length,
+    failed: allPosts.filter((p) => p.status === 'failed').length,
     expired: allPosts.filter((p) => p.status === 'expired').length,
   };
 
@@ -2285,7 +3496,30 @@ app.get('/api/posts', authMiddleware, (req: Request, res: Response) => {
     limit,
     total_pages: Math.ceil(total / limit) || 1,
     counts,
+    pool_max: MAX_POST_POOL_LIMIT,
+    firestore_status: recoveryQueueNode.getState().toLowerCase(),
+    firestore_message: recoveryQueueNode.getDiagnostics().message,
     posts: pagedPosts,
+  });
+});
+
+app.post('/api/posts/cleanup', authMiddleware, async (req: Request, res: Response) => {
+  const db = loadDatabase();
+  const fsDb = getFirestoreDb();
+  const beforeCount = Object.keys(db.posts).length;
+  const result = await cleanupPostPool(db, fsDb);
+
+  addSystemLog('INFO', 'Gardener', `Post pool tozalandi: ${result.deleted_count} ta post o'chirildi. Pool: ${result.remaining_count}/${MAX_POST_POOL_LIMIT}`);
+  broadcastEvent('posts_updated', { total_posts: result.remaining_count });
+  broadcastEvent('dashboard_updated', {});
+
+  return res.json({
+    status: 'ok',
+    message: `Post pool muvaffaqiyatli tozalandi. ${result.deleted_count} ta post o'chirildi. Hozirgi pool hajmi: ${result.remaining_count} / ${MAX_POST_POOL_LIMIT}`,
+    before_count: beforeCount,
+    deleted_count: result.deleted_count,
+    remaining_count: result.remaining_count,
+    pool_max: MAX_POST_POOL_LIMIT,
   });
 });
 
@@ -2337,6 +3571,10 @@ app.get('/api/system', authMiddleware, (req: Request, res: Response) => {
       firestore: {
         status: getFirestoreDb() ? 'online' : 'standby',
         name: 'Google Cloud Firestore',
+      },
+      translator: {
+        status: (process.env.GEMINI_API_KEY || '').trim() ? 'online' : 'not_configured',
+        name: `Gemini Translator (${(process.env.GEMINI_TRANSLATION_MODEL || 'gemini-3.8-flash').trim() || 'gemini-3.8-flash'})`,
       },
       local_database: { status: 'online', name: 'JSON Atomic Disk Store' },
     },
@@ -2484,14 +3722,167 @@ setInterval(() => {
 }, 15000);
 
 // --------------------------------------------------------------------------
+// TELEGRAM INGESTION POLLER (CENTRAL POST BASE)
+// --------------------------------------------------------------------------
+let lastTelegramUpdateOffset = 0;
+let isPollingTelegram = false;
+
+async function pollTelegramUpdates() {
+  const botToken = process.env.BOT_TOKEN;
+  if (!botToken || isPollingTelegram) return;
+
+  isPollingTelegram = true;
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/getUpdates?offset=${lastTelegramUpdateOffset}&limit=50&timeout=3`;
+    const res = await fetch(url);
+    const data = (await res.json()) as any;
+
+    if (data.ok && Array.isArray(data.result)) {
+      for (const update of data.result) {
+        if (update.update_id >= lastTelegramUpdateOffset) {
+          lastTelegramUpdateOffset = update.update_id + 1;
+        }
+
+        const msg = update.channel_post || update.message;
+        if (!msg || !msg.chat) continue;
+
+        const chatId = Number(msg.chat.id);
+        const db = loadDatabase();
+        const isCentral = chatId === CENTRAL_POST_BASE_CHAT_ID || (db.central_channels && db.central_channels[chatId]?.active);
+
+        if (!isCentral) continue;
+
+        console.log(`[POST_BASE] Received post: sourceChatId=${chatId} messageId=${msg.message_id}`);
+
+        const postId = `prem_${chatId}_${msg.message_id}`;
+        if (db.premium_posts[postId]) continue; // Already ingested
+
+        let mediaType = 'text';
+        let mediaFileId: string | null = null;
+        const mediaGroupId: string | null = msg.media_group_id ? String(msg.media_group_id) : null;
+        let text = msg.text || msg.caption || '';
+        const mediaItems: any[] = [];
+
+        if (msg.photo && Array.isArray(msg.photo) && msg.photo.length > 0) {
+          mediaType = mediaGroupId ? 'media_group' : 'photo';
+          mediaFileId = msg.photo[msg.photo.length - 1].file_id;
+          mediaItems.push({ type: 'photo', file_id: mediaFileId, caption: text });
+        } else if (msg.video) {
+          mediaType = mediaGroupId ? 'media_group' : 'video';
+          mediaFileId = msg.video.file_id;
+          mediaItems.push({ type: 'video', file_id: mediaFileId, caption: text });
+        } else if (msg.document) {
+          mediaType = 'document';
+          mediaFileId = msg.document.file_id;
+          mediaItems.push({ type: 'document', file_id: mediaFileId, caption: text });
+        } else if (msg.animation) {
+          mediaType = 'animation';
+          mediaFileId = msg.animation.file_id;
+          mediaItems.push({ type: 'animation', file_id: mediaFileId, caption: text });
+        }
+
+        const nowIso = new Date().toISOString();
+        const newPost: PremiumPostRecord = {
+          id: postId,
+          source_chat_id: chatId,
+          source_message_id: msg.message_id,
+          central_chat_id: chatId,
+          central_message_id: msg.message_id,
+          media_type: mediaType,
+          text,
+          media_file_id: mediaFileId,
+          media_group_id: mediaGroupId,
+          media_items: mediaItems,
+          author_id: msg.from?.id || null,
+          author_name: msg.author_signature || msg.from?.first_name || null,
+          status: 'PENDING',
+          distribution_type: 'premium',
+          target_mode: 'all_active',
+          delivered_count: 0,
+          successful_count: 0,
+          failed_count: 0,
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+
+        db.premium_posts[postId] = newPost;
+        if (db.central_channels[chatId]) {
+          db.central_channels[chatId].post_count = Object.values(db.premium_posts).filter(
+            (p) => p.central_chat_id === chatId
+          ).length;
+          db.central_channels[chatId].last_post_at = nowIso;
+        }
+        saveDatabase(db);
+        await saveEntityResilient('premium_posts', postId, newPost);
+        console.log(`[POST_BASE] Saved to Firestore: postId=${postId}`);
+
+        broadcastEvent('premium_posts_updated', { post_id: postId, post: newPost });
+        addSystemLog('INFO', 'PostBase', `Yangi post qabul qilindi: ID ${postId} (${mediaType})`);
+
+        // Trigger distribution to active premium channels
+        setTimeout(() => {
+          dispatchPremiumPost(postId).catch((err) => {
+            console.error(`[DISTRIBUTION] Auto-dispatch error for ${postId}:`, err);
+          });
+        }, 1000);
+      }
+    }
+  } catch (err: any) {
+    // Polling ignore
+  } finally {
+    isPollingTelegram = false;
+  }
+}
+
+// --------------------------------------------------------------------------
+// SCHEDULED DISTRIBUTION WORKER (Asia/Tashkent UTC+5)
+// --------------------------------------------------------------------------
+async function checkScheduleSlots() {
+  try {
+    const db = loadDatabase();
+    const now = new Date(Date.now() + 5 * 3600 * 1000);
+    const hh = String(now.getUTCHours()).padStart(2, '0');
+    const mm = String(now.getUTCMinutes()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}`;
+
+    const activeSlots = Object.values(db.schedules || {}).filter((s) => s.active && s.time === timeStr);
+    if (activeSlots.length === 0) return;
+
+    const postsToDispatch = Object.values(db.premium_posts || {}).filter(
+      (p) => p.status === 'SCHEDULED' || p.status === 'PENDING'
+    );
+
+    for (const post of postsToDispatch) {
+      console.log(`[SCHEDULE] Triggering distribution at ${timeStr} for post: ${post.id}`);
+      await dispatchPremiumPost(post.id);
+    }
+  } catch (err: any) {
+    console.warn('[Schedule Check Error]:', err.message);
+  }
+}
+
+// --------------------------------------------------------------------------
 // Vite SPA Middleware (Development & Production Fallback)
 // --------------------------------------------------------------------------
 async function startServer() {
-  // 1. Initial Firestore synchronization & Real-time listeners
+  // 1. Initial Firestore targeted synchronization & lightweight Real-time listeners
   try {
     await syncFirestoreToLocal();
     initFirestoreRealtimeListeners();
-    setInterval(syncFirestoreToLocal, 15000);
+    // Gentle periodic pool cleanup every 10 minutes (NO 15-second full collection scans!)
+    setInterval(async () => {
+      try {
+        const db = loadDatabase();
+        const fsDb = getFirestoreDb();
+        await cleanupPostPool(db, fsDb);
+      } catch (err: any) {
+        console.warn('[Periodic Pool Cleanup Error]:', err.message);
+      }
+    }, 10 * 60 * 1000);
+
+    // Background Telegram updates poller & schedule check
+    setInterval(pollTelegramUpdates, 3000);
+    setInterval(checkScheduleSlots, 30000);
   } catch (err: any) {
     console.warn('[Server] Firestore initial sync skipped or delayed:', err.message);
   }

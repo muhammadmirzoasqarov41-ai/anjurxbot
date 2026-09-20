@@ -964,6 +964,7 @@ async def handle_api_health(request: web.Request) -> web.Response:
     """API health with detailed status."""
     uptime = round(time.time() - START_TIME, 1)
     stats = await rss_storage.get_stats()
+    from app.services.gemini_translator import gemini_translator
     return web.json_response({
         "status": "ok",
         "app": "AnjurX | Rss Bot Engine",
@@ -971,6 +972,16 @@ async def handle_api_health(request: web.Request) -> web.Response:
         "bot_configured": config.has_token(),
         "total_feeds": stats.get("total_feeds", 0),
         "total_subscribers": stats.get("total_subscribers", 0),
+        "translator": gemini_translator.get_status(),
+    })
+
+
+async def handle_api_translator_status(request: web.Request) -> web.Response:
+    """Returns Gemini Translator configuration and operational diagnostics."""
+    from app.services.gemini_translator import gemini_translator
+    return web.json_response({
+        "status": "ok",
+        **gemini_translator.get_status(),
     })
 
 
@@ -1388,6 +1399,7 @@ def create_web_app() -> web.Application:
     # Health endpoints
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/health", handle_api_health)
+    app.router.add_get("/api/translator/status", handle_api_translator_status)
 
     # Authentication
     app.router.add_post("/api/auth/login", handle_auth_login)

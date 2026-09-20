@@ -1,6 +1,7 @@
 """
 Firestore Async Client wrapper for AnjurXBot.
-Supports native async calls with fallback for credential-free testing environments.
+Supports native async calls with fallback for credential-free testing environments,
+and integrates robust quota error detection.
 """
 import logging
 import inspect
@@ -24,6 +25,23 @@ from app.config import config
 logger = logging.getLogger("anjurxbot.firestore")
 
 
+def is_quota_error(e: Exception) -> bool:
+    """Detects Firestore 429 / ResourceExhausted / Quota exceeded exceptions."""
+    if not e:
+        return False
+    msg = str(e).lower()
+    name = type(e).__name__.lower()
+    return (
+        "resource_exhausted" in name or
+        "resourceexhausted" in name or
+        "quota exceeded" in msg or
+        "resource_exhausted" in msg or
+        "429" in msg or
+        getattr(e, "code", None) == 8 or
+        getattr(e, "status_code", None) == 429
+    )
+
+
 class FirestoreManager:
     _instance: Optional["FirestoreManager"] = None
     client: Any = None
@@ -38,6 +56,13 @@ class FirestoreManager:
                 "groups": {},
                 "users": {},
                 "moderation_logs": {},
+                "source_categories": {},
+                "sources": {},
+                "channels": {},
+                "posts": {},
+                "delivered_posts": {},
+                "daily_stats": {},
+                "settings": {},
             }
         return cls._instance
 
@@ -58,12 +83,10 @@ class FirestoreManager:
             sa = config.firebase_service_account
             if sa:
                 pid = sa.get("project_id") or project_id
-                # Initialize firebase-admin SDK if not already done
                 if not firebase_admin._apps:
                     cred = credentials.Certificate(sa)
                     firebase_admin.initialize_app(cred, {"projectId": pid})
 
-                # Initialize async Firestore client
                 g_cred = service_account.Credentials.from_service_account_info(sa)
                 self.client = AsyncClient(credentials=g_cred, project=pid)
                 self._is_connected = True
@@ -71,7 +94,6 @@ class FirestoreManager:
                 logger.info(f"Firebase Firestore connected successfully. Project: {pid}")
                 return True
             else:
-                # Attempt connecting via default Google Cloud environment credentials if project_id is known
                 try:
                     self.client = AsyncClient(project=project_id)
                     self._is_connected = True
@@ -112,7 +134,6 @@ class FirestoreManager:
         return self._is_connected and not self._fallback_mode and self.client is not None
 
     def is_initialized(self) -> bool:
-        """Checks if Firestore is actively connected and ready."""
         return self._is_connected and not self._fallback_mode and self.client is not None
 
     def collection(self, name: str):
@@ -121,7 +142,7 @@ class FirestoreManager:
             return self.client.collection(name)
         raise RuntimeError(f"Firestore is not connected. Cannot access collection '{name}'.")
 
-    # Document operations
+    # Document operations with explicit quota exception propagation
     async def get_document(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         try:
             if not self._fallback_mode and self.client:
@@ -140,6 +161,8 @@ class FirestoreManager:
                     return item_copy
                 return None
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"error_type={type(e).__name__} action=get_document collection={collection} doc_id={doc_id} error={e}")
             return None
 
@@ -157,6 +180,8 @@ class FirestoreManager:
                     col[str(doc_id)] = dict(data)
                 return True
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"error_type={type(e).__name__} action=set_document collection={collection} doc_id={doc_id} error={e}")
             return False
 
@@ -173,6 +198,8 @@ class FirestoreManager:
                     return True
                 return False
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"error_type={type(e).__name__} action=update_document collection={collection} doc_id={doc_id} error={e}")
             return False
 
@@ -186,10 +213,13 @@ class FirestoreManager:
                 self._memory_db.get(collection, {}).pop(str(doc_id), None)
                 return True
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"error_type={type(e).__name__} action=delete_document collection={collection} doc_id={doc_id} error={e}")
             return False
 
-    async def list_documents(self, collection: str, limit: int = 100) -> List[Dict[str, Any]]:
+    async def list_documents(self, collection: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Targeted document list with strict limit to prevent quota exhaustion."""
         try:
             if not self._fallback_mode and self.client:
                 docs = []
@@ -197,13 +227,6 @@ class FirestoreManager:
                 async for d in query.stream():
                     data = d.to_dict() or {}
                     data["_id"] = d.id
-                    if collection == "groups":
-                        try:
-                            if d.id.isdigit() or (d.id.startswith("-") and d.id[1:].isdigit()):
-                                data.setdefault("group_id", int(d.id))
-                                data.setdefault("chat_id", int(d.id))
-                        except Exception:
-                            pass
                     docs.append(data)
                 return docs
             else:
@@ -212,16 +235,11 @@ class FirestoreManager:
                 for k, v in list(col.items())[:limit]:
                     item = dict(v)
                     item["_id"] = k
-                    if collection == "groups":
-                        try:
-                            if k.isdigit() or (k.startswith("-") and k[1:].isdigit()):
-                                item.setdefault("group_id", int(k))
-                                item.setdefault("chat_id", int(k))
-                        except Exception:
-                            pass
                     results.append(item)
                 return results
         except Exception as e:
+            if is_quota_error(e):
+                raise
             logger.error(f"error_type={type(e).__name__} action=list_documents collection={collection} error={e}")
             return []
 

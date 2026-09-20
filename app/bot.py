@@ -16,6 +16,7 @@ from app.handlers.start import router as start_router
 from app.handlers.admin import router as admin_router
 from app.handlers.channels import router as channels_router
 from app.handlers.rss import router as rss_router
+from app.handlers.central_pool import router as central_pool_router
 from app.handlers.errors import router as errors_router
 
 from app.services.rss_storage import rss_storage
@@ -68,6 +69,7 @@ def create_dispatcher() -> Dispatcher:
     dp.include_router(admin_router)
     dp.include_router(channels_router)
     dp.include_router(rss_router)
+    dp.include_router(central_pool_router)
     dp.include_router(errors_router)
 
     # 4. Lifecycle hooks

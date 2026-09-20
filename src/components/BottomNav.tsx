@@ -1,7 +1,7 @@
 import React from 'react';
 import { LayoutDashboard, Radio, Layers, Rss, MoreHorizontal } from 'lucide-react';
 
-export type NavTab = 'dashboard' | 'channels' | 'posts' | 'sources' | 'more' | 'users' | 'distribution' | 'alerts' | 'system' | 'logs' | 'settings';
+export type NavTab = 'dashboard' | 'channels' | 'posts' | 'sources' | 'more' | 'users' | 'distribution' | 'alerts' | 'system' | 'logs' | 'settings' | 'premium';
 
 interface BottomNavProps {
   currentTab: NavTab;

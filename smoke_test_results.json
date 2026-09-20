@@ -1,0 +1,56 @@
+{
+  "step1": {
+    "success": true,
+    "message_id": 8
+  },
+  "step2": {
+    "success": true,
+    "message_id": 9,
+    "file_id": "AgACAgQAAyEGAAMBBLAlKAADCWqvwM5FZwR8alwgt2K5TiGH_WT1AAL0tzEb_BFFUmGYYOUJ3hv8AQADAgADeAADPQQ"
+  },
+  "step3": {
+    "success": true,
+    "message_id": 10,
+    "file_id": "BAACAgQAAyEGAAMBBLAlKAADCmqvwNDve4AcZrNz2SXGyAP2scpoAALICgACsDhUUsxfNwtKbvYWPQQ"
+  },
+  "step4": {
+    "success": true,
+    "message_count": 2
+  },
+  "step5": {
+    "success": true,
+    "dest_message_id": 13
+  },
+  "step6": {
+    "success": true,
+    "signature": "prem:prem_-1004373620008_8:-1004497554795"
+  },
+  "step7": {
+    "success": true,
+    "lang": "uz",
+    "message_id": 14
+  },
+  "step8": {
+    "text": true,
+    "text_link": true,
+    "inline_button": true
+  },
+  "step9": {
+    "success": true,
+    "premium": false
+  },
+  "step10": {
+    "success": true,
+    "is_premium_eligible": false
+  },
+  "step11": {
+    "success": true,
+    "coexistence": true
+  },
+  "step12": {
+    "hasCentralChannels": true,
+    "hasPremPosts": true,
+    "hasDelivered": true,
+    "signatures_count": 70
+  }
+}

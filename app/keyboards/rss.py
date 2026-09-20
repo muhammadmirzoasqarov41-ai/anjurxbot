@@ -80,39 +80,90 @@ def get_channel_detail_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
     status_btn_cb = f"ch_toggle:{channel.chat_id}"
 
     lang_code = getattr(channel, "post_language", "uz") or "uz"
-    lang_flags = {"uz": "🇺🇿 O‘zbekcha", "ru": "🇷🇺 Русский", "en": "🇬🇧 English", "auto": "🔄 Avtomatik"}
-    lang_btn_text = f"🌐 Post tili: {lang_flags.get(lang_code, '🇺🇿')}"
+    lang_flags = {
+        "uz": "🇺🇿 O‘zbekcha",
+        "uz_cyrl": "🇺🇿 O‘zbekcha — Kirill",
+        "ru": "🇷🇺 Русский",
+        "en": "🇬🇧 English",
+        "auto": "🔄 Asl til",
+    }
+    lang_btn_text = f"🌐 Post tili: {lang_flags.get(lang_code, '🇺🇿 O‘zbekcha')}"
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📰 Manbalar", callback_data=f"ch_sources:{channel.chat_id}"),
-                InlineKeyboardButton(text="⏰ Post vaqti", callback_data=f"ch_schedule:{channel.chat_id}"),
-            ],
-            [
-                InlineKeyboardButton(text=lang_btn_text, callback_data=f"ch_lang:{channel.chat_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="📊 Statistika", callback_data=f"ch_stats:{channel.chat_id}"),
-                InlineKeyboardButton(text=status_btn_text, callback_data=status_btn_cb),
-            ],
-            [
-                InlineKeyboardButton(text="🗑 Kanalni uzish", callback_data=f"ch_disconnect_ask:{channel.chat_id}"),
-            ],
-            [
-                InlineKeyboardButton(text="🔙 Mening kanallarim", callback_data="btn_my_channels"),
-            ],
-        ]
-    )
+    # Premium Content button (only if eligible)
+    is_eligible = getattr(channel, "is_premium_eligible", False)
+    is_prem_on = getattr(channel, "premium_enabled", False)
+    prem_btn_text = f"⭐ Premium: {'🟢 Yoqilgan' if is_prem_on else '⚪ O‘chirilgan'}"
+
+    # Footer button
+    footer_type = getattr(channel, "footer_type", "none")
+    footer_icons = {"none": "❌ Yo‘q", "text": "📝 Matn", "link": "🔗 Havola", "button": "🔘 Tugma"}
+    footer_btn_text = f"✍️ Post oxiri (Footer): {footer_icons.get(footer_type, '❌')}"
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="📰 Manbalar", callback_data=f"ch_sources:{channel.chat_id}"),
+            InlineKeyboardButton(text="⏰ Post vaqti", callback_data=f"ch_schedule:{channel.chat_id}"),
+        ],
+        [
+            InlineKeyboardButton(text=lang_btn_text, callback_data=f"ch_lang:{channel.chat_id}"),
+        ],
+        [
+            InlineKeyboardButton(text=footer_btn_text, callback_data=f"ch_footer:{channel.chat_id}"),
+        ],
+    ]
+
+    if is_eligible:
+        buttons.append([
+            InlineKeyboardButton(text=prem_btn_text, callback_data=f"ch_toggle_premium:{channel.chat_id}"),
+        ])
+
+    buttons.extend([
+        [
+            InlineKeyboardButton(text="📊 Statistika", callback_data=f"ch_stats:{channel.chat_id}"),
+            InlineKeyboardButton(text=status_btn_text, callback_data=status_btn_cb),
+        ],
+        [
+            InlineKeyboardButton(text="🗑 Kanalni uzish", callback_data=f"ch_disconnect_ask:{channel.chat_id}"),
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Mening kanallarim", callback_data="btn_my_channels"),
+        ],
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_channel_footer_keyboard(channel: ChannelItem) -> InlineKeyboardMarkup:
+    """Options for channel footer configuration."""
+    ftype = getattr(channel, "footer_type", "none")
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if ftype == 'none' else ''}❌ O‘chirib qo‘yish", callback_data=f"ch_set_footer:{channel.chat_id}:none"),
+        ],
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if ftype == 'text' else ''}📝 Oddiy matn", callback_data=f"ch_set_footer:{channel.chat_id}:text"),
+        ],
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if ftype == 'link' else ''}🔗 Matnli havola", callback_data=f"ch_set_footer:{channel.chat_id}:link"),
+        ],
+        [
+            InlineKeyboardButton(text=f"{'✅ ' if ftype == 'button' else ''}🔘 Inline tugma", callback_data=f"ch_set_footer:{channel.chat_id}:button"),
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Kanal boshqaruvi", callback_data=f"ch_view:{channel.chat_id}"),
+        ],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_channel_language_keyboard(channel_id: int, current_lang: str = "uz") -> InlineKeyboardMarkup:
-    """Keyboard for selecting channel post language (uz, ru, en, auto)."""
+    """Keyboard for selecting channel post language (uz, uz_cyrl, ru, en, auto)."""
     langs = [
         ("uz", "🇺🇿 O‘zbekcha"),
+        ("uz_cyrl", "🇺🇿 O‘zbekcha — Kirill"),
         ("ru", "🇷🇺 Русский"),
         ("en", "🇬🇧 English"),
-        ("auto", "🔄 Avtomatik (Asl tilda)"),
+        ("auto", "🔄 Asl til"),
     ]
     buttons = []
     for code, title in langs:

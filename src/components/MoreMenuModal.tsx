@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Shield,
   LogOut,
+  Sparkles,
 } from 'lucide-react';
 
 interface MoreMenuModalProps {
@@ -35,6 +36,13 @@ export const MoreMenuModal: React.FC<MoreMenuModalProps> = ({
     icon: React.ComponentType<{ className?: string }>;
     color: string;
   }> = [
+    {
+      id: 'premium',
+      label: 'Premium Kontent Pool',
+      description: 'Markaziy "Postlar" kanali va qo‘lda tayyorlangan postlar',
+      icon: Sparkles,
+      color: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+    },
     {
       id: 'users',
       label: 'Foydalanuvchilar va Tariflar',
